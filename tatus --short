@@ -1,0 +1,73 @@
+[1mdiff --git a/spamham_project_v3.py b/spamham_project_v3.py[m
+[1mindex bef7d90..49c4a19 100644[m
+[1m--- a/spamham_project_v3.py[m
+[1m+++ b/spamham_project_v3.py[m
+[36m@@ -247,6 +247,31 @@[m [mdef evaluate(name, model, X_test, y_test, threshold=None):[m
+     return {"name": name, "pr_auc": average_precision_score(y_test, scores),[m
+             "threshold": threshold, "model": model}[m
+ [m
+[32m+[m[32m#risk metor[m
+[32m+[m[32mdef get_risk_level(risk_score):[m
+[32m+[m[32m    if risk_score < 0.40:[m
+[32m+[m[32m        return "LOW"[m
+[32m+[m[32m    elif risk_score < 0.70:[m
+[32m+[m[32m        return "MEDIUM"[m
+[32m+[m[32m    else:[m
+[32m+[m[32m        return "HIGH"[m
+[32m+[m
+[32m+[m[32mdef predict_risk(model, message, threshold):[m
+[32m+[m[32m    probability = model.predict_proba([message])[0][1][m
+[32m+[m
+[32m+[m[32m    risk_score = probability * 100[m
+[32m+[m[32m    risk_level = get_risk_level(probability)[m
+[32m+[m
+[32m+[m[32m    prediction = "FRAUD" if probability >= threshold else "LEGITIMATE"[m
+[32m+[m
+[32m+[m[32m    print("\n==============================")[m
+[32m+[m[32m    print("       SMS FRAUD DETECTOR")[m
+[32m+[m[32m    print("==============================")[m
+[32m+[m[32m    print("Message:", message)[m
+[32m+[m[32m    print("Prediction:", prediction)[m
+[32m+[m[32m    print(f"Risk Score: {risk_score:.2f}%")[m
+[32m+[m[32m    print("Risk Level:", risk_level)[m
+[32m+[m
+ [m
+ def top_indicators(pipeline, k=20):[m
+     """Most fraud-indicative word features — the explainability slide."""[m
+[36m@@ -332,6 +357,27 @@[m [mdef main():[m
+     best = max(results, key=lambda r: r["pr_auc"])[m
+     print(f"\n>>> Best model: {best['name']} (PR-AUC {best['pr_auc']:.4f})")[m
+ [m
+[32m+[m
+[32m+[m[32m    predict_risk([m
+[32m+[m[32m    best["model"],[m
+[32m+[m[32m    "URGENT! Your account has been blocked. Click here to verify immediately.",[m
+[32m+[m[32m    best["threshold"][m
+[32m+[m[32m)[m
+[32m+[m
+[32m+[m[32m    predict_risk([m
+[32m+[m[32m    best["model"],[m
+[32m+[m[32m    "Congratulations! You won a free prize. Click this link to claim.",[m
+[32m+[m[32m    best["threshold"][m
+[32m+[m[32m)[m
+[32m+[m
+[32m+[m[32m    predict_risk([m
+[32m+[m[32m    best["model"],[m
+[32m+[m[32m    "Hey, are we still meeting at 6 pm today?",[m
+[32m+[m[32m    best["threshold"][m
+[32m+[m[32m)[m
+[32m+[m[41m    [m
+[32m+[m[41m    [m
+[32m+[m
+     top_indicators(best["model"])[m
+     error_analysis([m
+         df.loc[X_test.index], y_test.to_numpy(), best["model"], best["threshold"],[m
+[36m@@ -344,6 +390,7 @@[m [mdef main():[m
+     print(f"\nSaved {args.out}")[m
+     return 0[m
+ [m
+[31m-[m
+ if __name__ == "__main__":[m
+     sys.exit(main())[m
+[32m+[m
+[32m+[m[32mprint("Git update test")[m
