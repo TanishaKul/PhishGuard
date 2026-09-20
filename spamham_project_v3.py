@@ -1,25 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-SMS Fraud (Smishing) Detection — v3
-Dataset: UCI SMS Spam Collection (spam.csv, latin-1)
+SMS Fraud (Smishing) Detection-v3
+Dataset: UCI SMS Spam Collection (spam.csv,latin-1)
 
-Framing: spam here is treated as SMS-based fraud (smishing). The model is a
-triage system — it flags messages for review, and the operating threshold is
-chosen from the cost of a missed fraud vs. the cost of a false alarm.
-
-Run:  python spamham_project_v3.py --data spam.csv
+Framing: spam here is treated as SMS-based fraud (smishing).
+the model is a triage system - it flagsmessages for review, and the
+operating threshold is chosen from the cost of a missed fraud vs. the 
+cost of a false alsrm.
+Run: python spamham_project_v3.py --data spam.csv
 """
 
 import argparse
 import re
 import sys
-from pathlib import Path
+from pathlib import Path 
 
 import joblib
 import numpy as np
 import pandas as pd
 from scipy.sparse import csr_matrix, hstack
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator,TransformerMixin
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -347,3 +347,14 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+"""
+SMS Fraud (Smishing) Detection - v3
+Dataset: "UCI SMS Spam Collection (spam.csv, latin-1)"
+
+Framing: spam here is treated as SMS-based fraud (smishing). The model is a
+triage system - it flags messages for review, and the operating threshold is
+chosen from the cost of a missed fraud vs. the cost of a false alarm.
+
+Run:  python spamham_project_v3.py --data spam.csv
+"""
+
