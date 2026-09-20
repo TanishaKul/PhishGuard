@@ -95,12 +95,70 @@ SHORTCODE_RE = re.compile(r"\b\d{4,6}\b")
 CURRENCY_RE = re.compile(r"[£$€₹]")
 NUM_RE = re.compile(r"\b\d+\b")
 
-URGENCY_TERMS = (
-    "urgent", "immediately", "act now", "expire", "expires", "last chance",
-    "verify", "suspended", "blocked", "confirm", "claim", "winner", "won",
-    "free", "prize", "congratulations", "guaranteed", "risk free", "click",
-)
+SUSPICIOUS_KEYWORDS = {
+    "urgency": [
+        "urgent",
+        "immediately",
+        "act now",
+        "last chance",
+        "expires",
+        "expire"
+    ],
 
+    "account_security": [
+        "verify",
+        "confirm",
+        "suspended",
+        "blocked",
+        "account",
+        "password",
+        "login"
+    ],
+
+    "reward_prize": [
+        "winner",
+        "won",
+        "free",
+        "prize",
+        "congratulations",
+        "reward",
+        "cash",
+        "bonus"
+    ],
+
+    "action_words": [
+        "click",
+        "claim",
+        "verify",
+        "confirm",
+        "subscribe"
+    ],
+
+    "financial": [
+        "bank",
+        "payment",
+        "refund",
+        "transaction",
+        "credit",
+        "debit",
+        "money"
+    ]
+}
+def detect_suspicious_keywords(message):
+    message_lower = message.lower()
+    detected = {}
+
+    for category, keywords in SUSPICIOUS_KEYWORDS.items():
+        matches = []
+
+        for keyword in keywords:
+            if keyword in message_lower:
+                matches.append(keyword)
+
+        if matches:
+            detected[category] = matches
+
+    return detected
 
 def normalize_text(message: str) -> str:
     """Lowercase and replace high-signal entities with placeholder tokens."""
@@ -153,8 +211,12 @@ class HandcraftedFeatures(BaseEstimator, TransformerMixin):
             float(bool(EMAIL_RE.search(msg))),
             float(bool(PHONE_RE.search(msg))),
             float(bool(CURRENCY_RE.search(msg))),
-            sum(term in lower for term in URGENCY_TERMS),
-        ]
+            sum(
+                term in lower
+                for keywords in SUSPICIOUS_KEYWORDS.values()
+                for term in keywords
+            ),
+           ]
 
 
 def build_features() -> FeatureUnion:
@@ -271,6 +333,18 @@ def predict_risk(model, message, threshold):
     print("Prediction:", prediction)
     print(f"Risk Score: {risk_score:.2f}%")
     print("Risk Level:", risk_level)
+    detected = detect_suspicious_keywords(message)
+
+    if detected:
+        print("\nWhy was this flagged?")
+
+        for category, keywords in detected.items():
+            category_name = category.replace("_", " ").title()
+            print(f"- {category_name}: {', '.join(keywords)}")
+
+    else:
+        print("\nWhy was this flagged?")
+        print("- No suspicious keywords detected.")
 
 
 def top_indicators(pipeline, k=20):
@@ -357,6 +431,7 @@ def main():
     best = max(results, key=lambda r: r["pr_auc"])
     print(f"\n>>> Best model: {best['name']} (PR-AUC {best['pr_auc']:.4f})")
 
+    
 
     predict_risk(
     best["model"],
