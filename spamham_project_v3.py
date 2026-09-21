@@ -247,6 +247,31 @@ def evaluate(name, model, X_test, y_test, threshold=None):
     return {"name": name, "pr_auc": average_precision_score(y_test, scores),
             "threshold": threshold, "model": model}
 
+#risk metor
+def get_risk_level(risk_score):
+    if risk_score < 0.40:
+        return "LOW"
+    elif risk_score < 0.70:
+        return "MEDIUM"
+    else:
+        return "HIGH"
+
+def predict_risk(model, message, threshold):
+    probability = model.predict_proba([message])[0][1]
+
+    risk_score = probability * 100
+    risk_level = get_risk_level(probability)
+
+    prediction = "FRAUD" if probability >= threshold else "LEGITIMATE"
+
+    print("\n==============================")
+    print("       SMS FRAUD DETECTOR")
+    print("==============================")
+    print("Message:", message)
+    print("Prediction:", prediction)
+    print(f"Risk Score: {risk_score:.2f}%")
+    print("Risk Level:", risk_level)
+
 
 def top_indicators(pipeline, k=20):
     """Most fraud-indicative word features — the explainability slide."""
@@ -332,6 +357,27 @@ def main():
     best = max(results, key=lambda r: r["pr_auc"])
     print(f"\n>>> Best model: {best['name']} (PR-AUC {best['pr_auc']:.4f})")
 
+
+    predict_risk(
+    best["model"],
+    "URGENT! Your account has been blocked. Click here to verify immediately.",
+    best["threshold"]
+)
+
+    predict_risk(
+    best["model"],
+    "Congratulations! You won a free prize. Click this link to claim.",
+    best["threshold"]
+)
+
+    predict_risk(
+    best["model"],
+    "Hey, are we still meeting at 6 pm today?",
+    best["threshold"]
+)
+    
+    
+
     top_indicators(best["model"])
     error_analysis(
         df.loc[X_test.index], y_test.to_numpy(), best["model"], best["threshold"],
@@ -343,7 +389,6 @@ def main():
     )
     print(f"\nSaved {args.out}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
