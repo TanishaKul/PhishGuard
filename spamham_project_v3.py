@@ -18,6 +18,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from eda import run_eda
 from scipy.sparse import csr_matrix, hstack
 from sklearn.base import BaseEstimator,TransformerMixin
 from sklearn.calibration import CalibratedClassifierCV
@@ -438,6 +439,7 @@ def error_analysis(df_test, y_test, model, threshold, n=5):
 
 # --------------------------------------------------------------------------
 def main():
+    run_eda()
     parser = argparse.ArgumentParser(description="SMS fraud detection")
     parser.add_argument("--data", type=Path, default=Path("spam.csv"))
     parser.add_argument("--out", type=Path, default=Path("fraud_model.joblib"))
