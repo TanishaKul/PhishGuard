@@ -95,11 +95,58 @@ SHORTCODE_RE = re.compile(r"\b\d{4,6}\b")
 CURRENCY_RE = re.compile(r"[£$€₹]")
 NUM_RE = re.compile(r"\b\d+\b")
 
-URGENCY_TERMS = (
-    "urgent", "immediately", "act now", "expire", "expires", "last chance",
-    "verify", "suspended", "blocked", "confirm", "claim", "winner", "won",
-    "free", "prize", "congratulations", "guaranteed", "risk free", "click",
-)
+SUSPICIOUS_KEYWORDS = {
+    "urgency": [
+        "urgent",
+        "immediately",
+        "act now",
+        "last chance",
+        "hurry",
+        "expires",
+        "expire"
+    ],
+
+    "account_threat": [
+        "suspended",
+        "blocked",
+        "deactivated",
+        "locked",
+        "verify your account",
+        "confirm your account"
+    ],
+
+    "financial": [
+        "bank",
+        "account",
+        "payment",
+        "refund",
+        "cash",
+        "money",
+        "prize",
+        "reward",
+        "winner",
+        "won"
+    ],
+
+    "action_request": [
+        "click",
+        "click here",
+        "verify",
+        "confirm",
+        "claim",
+        "login",
+        "update"
+    ],
+
+    "reward_scam": [
+        "free",
+        "congratulations",
+        "you won",
+        "lucky winner",
+        "guaranteed",
+        "risk free"
+    ]
+}
 
 
 def normalize_text(message: str) -> str:
@@ -153,7 +200,11 @@ class HandcraftedFeatures(BaseEstimator, TransformerMixin):
             float(bool(EMAIL_RE.search(msg))),
             float(bool(PHONE_RE.search(msg))),
             float(bool(CURRENCY_RE.search(msg))),
-            sum(term in lower for term in URGENCY_TERMS),
+            sum(
+                keyword in lower
+                for keywords in SUSPICIOUS_KEYWORDS.values()
+                for keyword in keywords
+            ),
         ]
 
 
@@ -256,6 +307,78 @@ def get_risk_level(risk_score):
     else:
         return "HIGH"
 
+def detect_suspicious_keywords(message):
+    """Detect suspicious keywords and return their categories."""
+
+    message_lower = message.lower()
+
+    detected = {}
+
+    for category, keywords in SUSPICIOUS_KEYWORDS.items():
+        matches = []
+
+        for keyword in keywords:
+            if keyword in message_lower:
+                matches.append(keyword)
+
+        if matches:
+            detected[category] = matches
+
+    return detected
+def explain_prediction(message, probability):
+    """Generate human-readable reasons for the prediction."""
+
+    reasons = []
+
+    detected = detect_suspicious_keywords(message)
+
+    for category, keywords in detected.items():
+
+        if category == "urgency":
+            reasons.append(
+                f"Urgency language detected: {', '.join(keywords)}"
+            )
+
+        elif category == "account_threat":
+            reasons.append(
+                f"Account/security warning detected: {', '.join(keywords)}"
+            )
+
+        elif category == "financial":
+            reasons.append(
+                f"Financial/reward-related terms detected: {', '.join(keywords)}"
+            )
+
+        elif category == "action_request":
+            reasons.append(
+                f"Suspicious action request detected: {', '.join(keywords)}"
+            )
+
+        elif category == "reward_scam":
+            reasons.append(
+                f"Prize/reward language detected: {', '.join(keywords)}"
+            )
+
+    if URL_RE.search(message):
+        reasons.append("Contains a URL/link")
+
+    if EMAIL_RE.search(message):
+        reasons.append("Contains an email address")
+
+    if PHONE_RE.search(message):
+        reasons.append("Contains a phone number")
+
+    if CURRENCY_RE.search(message):
+        reasons.append("Contains currency information")
+
+    if "!" in message:
+        reasons.append("Uses exclamation marks")
+
+    if not reasons:
+        reasons.append("No major rule-based suspicious indicators detected.")
+
+    return reasons
+
 def predict_risk(model, message, threshold):
     probability = model.predict_proba([message])[0][1]
 
@@ -263,7 +386,7 @@ def predict_risk(model, message, threshold):
     risk_level = get_risk_level(probability)
 
     prediction = "FRAUD" if probability >= threshold else "LEGITIMATE"
-
+    reasons = explain_prediction(message, probability)
     print("\n==============================")
     print("       SMS FRAUD DETECTOR")
     print("==============================")
@@ -271,7 +394,11 @@ def predict_risk(model, message, threshold):
     print("Prediction:", prediction)
     print(f"Risk Score: {risk_score:.2f}%")
     print("Risk Level:", risk_level)
+    print("\nWhy was this flagged?")
+    for reason in reasons:
+        print("  •", reason)
 
+    print("==============================")
 
 def top_indicators(pipeline, k=20):
     """Most fraud-indicative word features — the explainability slide."""
