@@ -15,6 +15,8 @@ Signed in (session cookie):
   GET    /api/history         ?limit=1..500&offset=0
   DELETE /api/history         delete all of the user's scans
   DELETE /api/history/{id}
+  POST   /api/scans/{id}/feedback   {"correctLabel": "fraud"|"legit", "note"?: str}
+  DELETE /api/scans/{id}/feedback
 
 Configuration (environment): MODEL_PATH, DATABASE_URL (see db.py),
 ALLOWED_ORIGINS (comma-separated, added to localhost), COOKIE_SECURE=1 behind HTTPS.
@@ -28,7 +30,7 @@ import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import joblib
 from fastapi import Cookie, Depends, FastAPI, Query, Request, Response
@@ -43,7 +45,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 import auth
 import message_analysis
 import spamham_project_v3 as sp
-from db import AuthSession, Database, Scan, User
+from db import AuthSession, Database, Feedback, Scan, User
 
 TRAIN_COMMAND = "python spamham_project_v3.py --data spam.csv"
 
@@ -100,6 +102,14 @@ class Credentials(BaseModel):
 class ScanRequest(BaseModel):
     message: str
     threshold: float | None = None
+
+
+class FeedbackRequest(BaseModel):
+    correctLabel: Literal["fraud", "legit"]
+    note: str | None = None
+
+
+MAX_NOTE_CHARS = 500
 
 
 def create_app(model_path: Path | None = None, database: Database | None = None,
@@ -301,19 +311,50 @@ def create_app(model_path: Path | None = None, database: Database | None = None,
         db.commit()
         result["id"] = f"scan-{row.id}"
         result["timestamp"] = _timestamp(row.created_at)
+        result["feedback"] = None
         return result
 
     @app.get("/api/history")
     def history(limit: Annotated[int, Query(ge=1, le=500)] = 100, offset: Annotated[int, Query(ge=0)] = 0,
                 user: User = Depends(current_user), db=Depends(get_db)):
         total = db.scalar(select(func.count()).select_from(Scan).where(Scan.user_id == user.id))
-        rows = db.scalars(select(Scan).where(Scan.user_id == user.id)
-                          .order_by(Scan.created_at.desc(), Scan.id.desc()).limit(limit).offset(offset))
-        return {"total": total, "items": [_history_item(r) for r in rows]}
+        rows = list(db.scalars(select(Scan).where(Scan.user_id == user.id)
+                               .order_by(Scan.created_at.desc(), Scan.id.desc()).limit(limit).offset(offset)))
+        labels = dict(db.execute(select(Feedback.scan_id, Feedback.correct_label)
+                                 .where(Feedback.scan_id.in_([r.id for r in rows]))).all())
+        return {"total": total, "items": [_history_item(r, labels.get(r.id)) for r in rows]}
 
     @app.delete("/api/history")
     def clear_history(user: User = Depends(current_user), db=Depends(get_db)):
         deleted = db.execute(delete(Scan).where(Scan.user_id == user.id)).rowcount
+        db.commit()
+        return {"deleted": deleted}
+
+    def own_scan(db, user: User, scan_id: int) -> Scan:
+        row = db.get(Scan, scan_id)
+        if row is None or row.user_id != user.id:
+            raise ApiError(404, f"Scan {scan_id} not found.")
+        return row
+
+    @app.post("/api/scans/{scan_id}/feedback")
+    def give_feedback(scan_id: int, body: FeedbackRequest, user: User = Depends(current_user), db=Depends(get_db)):
+        own_scan(db, user, scan_id)
+        note = (body.note or "").strip() or None
+        if note and len(note) > MAX_NOTE_CHARS:
+            raise ApiError(413, f"Note is {len(note)} characters; the limit is {MAX_NOTE_CHARS}.")
+        row = db.scalar(select(Feedback).where(Feedback.scan_id == scan_id))
+        if row is None:
+            row = Feedback(scan_id=scan_id, user_id=user.id, correct_label=body.correctLabel, note=note)
+            db.add(row)
+        else:
+            row.correct_label, row.note = body.correctLabel, note
+        db.commit()
+        return {"scanId": f"scan-{scan_id}", "correctLabel": row.correct_label, "note": row.note}
+
+    @app.delete("/api/scans/{scan_id}/feedback")
+    def remove_feedback(scan_id: int, user: User = Depends(current_user), db=Depends(get_db)):
+        own_scan(db, user, scan_id)
+        deleted = db.execute(delete(Feedback).where(Feedback.scan_id == scan_id)).rowcount
         db.commit()
         return {"deleted": deleted}
 
@@ -338,8 +379,8 @@ def _timestamp(dt: datetime) -> str:
     return _aware(dt).astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _history_item(row: Scan) -> dict:
-    result = dict(row.result, id=f"scan-{row.id}", timestamp=_timestamp(row.created_at))
+def _history_item(row: Scan, feedback: str | None = None) -> dict:
+    result = dict(row.result, id=f"scan-{row.id}", timestamp=_timestamp(row.created_at), feedback=feedback)
     return {
         "id": result["id"],
         "timestamp": result["timestamp"],
@@ -352,6 +393,7 @@ def _history_item(row: Scan) -> dict:
         "reasonsCount": len(result.get("reasons", [])),
         "topReason": (result.get("reasons") or [None])[0],
         "detectedCategories": [s["category"] for s in result.get("detectedSignals", [])],
+        "feedback": feedback,
         "result": result,
     }
 

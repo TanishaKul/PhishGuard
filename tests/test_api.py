@@ -209,3 +209,40 @@ def test_cors_only_allows_localhost(client):
 def test_unknown_route_is_404(client):
     r = client.get("/api/nope")
     assert r.status_code == 404 and "/api/nope" in r.json()["error"]
+
+
+def scan_id(client, message=FRAUD[0]):
+    return client.post("/api/scan", json={"message": message}).json()["id"].removeprefix("scan-")
+
+
+def test_feedback_roundtrip(client):
+    register(client)
+    sid = scan_id(client)
+    r = client.post(f"/api/scans/{sid}/feedback", json={"correctLabel": "legit", "note": " my bank "})
+    assert r.status_code == 200 and r.json() == {"scanId": f"scan-{sid}", "correctLabel": "legit", "note": "my bank"}
+    # Resubmitting replaces the earlier verdict.
+    client.post(f"/api/scans/{sid}/feedback", json={"correctLabel": "fraud"})
+    item = client.get("/api/history").json()["items"][0]
+    assert item["feedback"] == "fraud" and item["result"]["feedback"] == "fraud"
+    assert client.delete(f"/api/scans/{sid}/feedback").json() == {"deleted": 1}
+    assert client.get("/api/history").json()["items"][0]["feedback"] is None
+
+
+@pytest.mark.parametrize("body, status, message", [
+    ({"correctLabel": "maybe"}, 400, "'correctLabel'"),
+    ({}, 400, "'correctLabel' is required"),
+    ({"correctLabel": "legit", "note": "x" * 501}, 413, "limit is 500"),
+])
+def test_feedback_validation(client, body, status, message):
+    register(client)
+    r = client.post(f"/api/scans/{scan_id(client)}/feedback", json=body)
+    assert r.status_code == status and message in r.json()["error"]
+
+
+def test_feedback_only_on_own_scans(client):
+    register(client, email="a@example.com")
+    sid = scan_id(client)
+    client.cookies.clear()
+    register(client, email="b@example.com")
+    r = client.post(f"/api/scans/{sid}/feedback", json={"correctLabel": "legit"})
+    assert r.status_code == 404

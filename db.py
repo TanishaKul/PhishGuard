@@ -19,6 +19,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
@@ -81,6 +82,21 @@ class Scan(Base):
     # Full API response, so history shows exactly what the model returned.
     result: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class Feedback(Base):
+    """A user's verdict on one of their scans; feeds future training data."""
+
+    __tablename__ = "feedback"
+    __table_args__ = (UniqueConstraint("scan_id", name="uq_feedback_scan"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scan_id: Mapped[int] = mapped_column(ForeignKey("scans.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # What the message really was: "fraud" or "legit".
+    correct_label: Mapped[str] = mapped_column(String(8))
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class Database:
