@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 import joblib
 import pytest
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
+import mailer
 import spamham_project_v3 as sp
 from api_server import MAX_BODY_BYTES, MAX_MESSAGE_CHARS, create_app
 from db import Base, Database
@@ -246,3 +248,88 @@ def test_feedback_only_on_own_scans(client):
     register(client, email="b@example.com")
     r = client.post(f"/api/scans/{sid}/feedback", json={"correctLabel": "legit"})
     assert r.status_code == 404
+
+
+class Outbox:
+    def __init__(self):
+        self.sent = []
+
+    def send(self, to, subject, body):
+        self.sent.append((to, subject, body))
+
+    def token(self):
+        return re.search(r"token=(\S+)", self.sent[-1][2]).group(1)
+
+
+@pytest.fixture
+def outbox():
+    return Outbox()
+
+
+@pytest.fixture
+def reset_client(model_path, database, outbox):
+    app = create_app(model_path=model_path, database=database, extra_origins=[], cookie_secure=False,
+                     mail=outbox, app_url="http://app.test")
+    with TestClient(app) as c:
+        yield c
+
+
+def test_password_reset_flow(reset_client, outbox):
+    c = reset_client
+    register(c)
+    other_session = c.cookies.get("pg_session")
+    c.cookies.clear()
+
+    r = c.post("/api/auth/forgot", json={"email": "USER@example.com"})
+    assert r.status_code == 202 and "If an account exists" in r.json()["message"]
+    assert outbox.sent[-1][0] == "user@example.com" and "http://app.test/reset-password?token=" in outbox.sent[-1][2]
+
+    r = c.post("/api/auth/reset", json={"token": outbox.token(), "password": "a brand new password"})
+    assert r.status_code == 200 and c.get("/api/auth/me").status_code == 200
+    # Old sessions are signed out, the old password no longer works, the new one does.
+    c.cookies.clear()
+    c.cookies.set("pg_session", other_session)
+    assert c.get("/api/auth/me").status_code == 401
+    c.cookies.clear()
+    assert c.post("/api/auth/login", json={"email": "user@example.com", "password": PASSWORD}).status_code == 401
+    assert c.post("/api/auth/login", json={"email": "user@example.com", "password": "a brand new password"}).status_code == 200
+
+
+def test_reset_token_is_single_use(reset_client, outbox):
+    register(reset_client)
+    reset_client.post("/api/auth/forgot", json={"email": "user@example.com"})
+    token = outbox.token()
+    assert reset_client.post("/api/auth/reset", json={"token": token, "password": "new password 1"}).status_code == 200
+    r = reset_client.post("/api/auth/reset", json={"token": token, "password": "new password 2"})
+    assert r.status_code == 400 and "invalid or has expired" in r.json()["error"]
+
+
+def test_reset_rejects_bad_token_and_short_password(reset_client, outbox):
+    register(reset_client)
+    assert reset_client.post("/api/auth/reset", json={"token": "nope", "password": "long enough"}).status_code == 400
+    reset_client.post("/api/auth/forgot", json={"email": "user@example.com"})
+    r = reset_client.post("/api/auth/reset", json={"token": outbox.token(), "password": "short"})
+    assert r.status_code == 400 and "at least 8" in r.json()["error"]
+
+
+def test_forgot_unknown_email_looks_the_same(reset_client, outbox):
+    r = reset_client.post("/api/auth/forgot", json={"email": "ghost@example.com"})
+    assert r.status_code == 202 and outbox.sent == []
+
+
+def test_forgot_is_rate_limited(reset_client):
+    for _ in range(3):
+        assert reset_client.post("/api/auth/forgot", json={"email": "x@example.com"}).status_code == 202
+    assert reset_client.post("/api/auth/forgot", json={"email": "x@example.com"}).status_code == 429
+
+
+def test_forgot_reports_mail_failure(model_path, database):
+    class Broken:
+        def send(self, *a):
+            raise mailer.MailError("smtp down")
+
+    app = create_app(model_path=model_path, database=database, extra_origins=[], cookie_secure=False, mail=Broken())
+    with TestClient(app) as c:
+        register(c)
+        r = c.post("/api/auth/forgot", json={"email": "user@example.com"})
+        assert r.status_code == 503 and "couldn't send" in r.json()["error"]

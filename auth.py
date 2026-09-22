@@ -57,6 +57,15 @@ def new_session_token() -> tuple[str, str, datetime]:
     return token, hash_token(token), datetime.now(timezone.utc) + SESSION_TTL
 
 
+RESET_TTL = timedelta(hours=1)
+
+
+def new_reset_token() -> tuple[str, str, datetime]:
+    """(token for the emailed link, its SHA-256 for the database, expiry)."""
+    token = secrets.token_urlsafe(32)
+    return token, hash_token(token), datetime.now(timezone.utc) + RESET_TTL
+
+
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 

@@ -8,6 +8,8 @@ Public:
   GET    /api/metrics         evaluation report saved at training time
   POST   /api/auth/register   {"email", "password"} -> sets session cookie
   POST   /api/auth/login      {"email", "password"} -> sets session cookie
+  POST   /api/auth/forgot     {"email"} -> emails a reset link (always 202)
+  POST   /api/auth/reset      {"token", "password"} -> new password, signs in
 Signed in (session cookie):
   POST   /api/auth/logout
   GET    /api/auth/me
@@ -19,7 +21,8 @@ Signed in (session cookie):
   DELETE /api/scans/{id}/feedback
 
 Configuration (environment): MODEL_PATH, DATABASE_URL (see db.py),
-ALLOWED_ORIGINS (comma-separated, added to localhost), COOKIE_SECURE=1 behind HTTPS.
+ALLOWED_ORIGINS (comma-separated, added to localhost), COOKIE_SECURE=1 behind HTTPS,
+APP_URL (frontend address used in reset links), SMTP_* (see mailer.py).
 
 Run: python api_server.py --port 8000
 """
@@ -43,9 +46,10 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 import auth
+import mailer
 import message_analysis
 import spamham_project_v3 as sp
-from db import AuthSession, Database, Feedback, Scan, User
+from db import AuthSession, Database, Feedback, PasswordReset, Scan, User
 
 TRAIN_COMMAND = "python spamham_project_v3.py --data spam.csv"
 
@@ -104,6 +108,15 @@ class ScanRequest(BaseModel):
     threshold: float | None = None
 
 
+class ForgotRequest(BaseModel):
+    email: str
+
+
+class ResetRequest(BaseModel):
+    token: str
+    password: str
+
+
 class FeedbackRequest(BaseModel):
     correctLabel: Literal["fraud", "legit"]
     note: str | None = None
@@ -113,7 +126,8 @@ MAX_NOTE_CHARS = 500
 
 
 def create_app(model_path: Path | None = None, database: Database | None = None,
-               extra_origins: list[str] | None = None, cookie_secure: bool | None = None) -> FastAPI:
+               extra_origins: list[str] | None = None, cookie_secure: bool | None = None,
+               mail=None, app_url: str | None = None) -> FastAPI:
     model_path = model_path or Path(os.environ.get("MODEL_PATH", "fraud_model.joblib"))
     database = database or Database()
     if extra_origins is None:
@@ -121,8 +135,12 @@ def create_app(model_path: Path | None = None, database: Database | None = None,
     if cookie_secure is None:
         cookie_secure = os.environ.get("COOKIE_SECURE") == "1"
 
+    mail = mail or mailer.mailer_from_env()
+    app_url = (app_url or os.environ.get("APP_URL", "http://localhost:3001")).rstrip("/")
+
     model = ModelState()
     limiter = auth.LoginRateLimiter()
+    reset_limiter = auth.LoginRateLimiter(max_failures=3, window_seconds=3600)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -279,6 +297,53 @@ def create_app(model_path: Path | None = None, database: Database | None = None,
             db.commit()
         response.delete_cookie(auth.SESSION_COOKIE, path="/")
         return {"signedOut": True}
+
+    @app.post("/api/auth/forgot", status_code=202)
+    def forgot_password(body: ForgotRequest, request: Request, db=Depends(get_db)):
+        email = auth.normalize_email(body.email)
+        if not auth.EMAIL_RE.match(email):
+            raise ApiError(400, "Enter a valid email address.")
+        key = f"{request.client.host if request.client else '-'}|{email}"
+        wait = reset_limiter.retry_after(key)
+        if wait:
+            raise ApiError(429, "Too many reset requests for this email.",
+                           f"Try again in {max(1, wait // 60)} minute(s).", headers={"Retry-After": str(wait)})
+        reset_limiter.record_failure(key)
+
+        # Same response whether or not the account exists, so this cannot be
+        # used to discover who has an account.
+        user = db.scalar(select(User).where(User.email == email))
+        if user is not None:
+            token, token_hash, expires = auth.new_reset_token()
+            db.add(PasswordReset(token_hash=token_hash, user_id=user.id, expires_at=expires))
+            db.commit()
+            link = f"{app_url}/reset-password?token={token}"
+            try:
+                mail.send(user.email, "Reset your PhishGuard password",
+                          f"Someone asked to reset the password for {user.email}.\n\n"
+                          f"Open this link within 1 hour to choose a new password:\n{link}\n\n"
+                          "If this wasn't you, ignore this email; your password is unchanged.")
+            except mailer.MailError as exc:
+                print(f"[PhishGuard] {exc}")
+                raise ApiError(503, "We couldn't send the reset email.", "Try again later.")
+        return {"message": "If an account exists for that email, we've sent a reset link. It expires in 1 hour."}
+
+    @app.post("/api/auth/reset")
+    def reset_password(body: ResetRequest, response: Response, db=Depends(get_db)):
+        row = db.get(PasswordReset, auth.hash_token(body.token))
+        if row is None or row.used_at is not None or _aware(row.expires_at) <= datetime.now(timezone.utc):
+            raise ApiError(400, "This reset link is invalid or has expired.", "Request a new one.")
+        user = db.get(User, row.user_id)
+        problem = auth.validate_credentials(user.email, body.password)
+        if problem:
+            raise ApiError(400, problem)
+        user.password_hash = auth.hash_password(body.password)
+        row.used_at = datetime.now(timezone.utc)
+        # A reset signs out every existing session.
+        db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+        db.commit()
+        start_session(db, response, user)
+        return {"email": user.email}
 
     @app.get("/api/auth/me")
     def me(user: User = Depends(current_user)):
