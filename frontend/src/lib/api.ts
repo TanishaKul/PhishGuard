@@ -11,7 +11,9 @@ import {
 // (api_server.py). There is deliberately no in-browser fallback: if the API is
 // down, callers get an ApiError and show it instead of a made-up score.
 
-const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// An empty NEXT_PUBLIC_API_URL means "same site": the web app proxies /api/*
+// to the API (see API_PROXY_TARGET in next.config.ts).
+const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 const API_URL_KEY = 'phishguard_api_url';
 const THRESHOLD_KEY = 'phishguard_threshold';
 const HISTORY_LIMIT = 500;
@@ -75,7 +77,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // Send the session cookie; the API only accepts credentials from allowed origins.
     response = await fetch(url, { ...init, credentials: 'include' });
   } catch {
-    throw new ApiError(`Cannot reach the fraud-detection API at ${getApiUrl()}.`, 0, START_API_HINT);
+    const where = getApiUrl() || `${window.location.origin} (proxied)`;
+    throw new ApiError(`Cannot reach the fraud-detection API at ${where}.`, 0, START_API_HINT);
   }
 
   let body: unknown = null;
