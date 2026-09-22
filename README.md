@@ -35,7 +35,7 @@ python -c "import nltk; nltk.download('stopwords')"
 ## Usage
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.txt      # add requirements-eda.txt for the plots
 python -c "import nltk; nltk.download('stopwords')"
 ```
 
@@ -90,6 +90,11 @@ history is stored per user in the database. API docs: http://localhost:8000/api/
 | `MODEL_PATH` | `fraud_model.joblib` | e.g. `fraud_model_combined.joblib` |
 | `ALLOWED_ORIGINS` | localhost only | extra frontend origins, comma-separated |
 | `COOKIE_SECURE` | off | set to `1` when served over HTTPS |
+| `COOKIE_SAMESITE` | `lax` | `none` only for direct cross-site calls (needs `COOKIE_SECURE=1`) |
+| `MODEL_URL`, `MODEL_SHA256` | unset | download the model on startup if `MODEL_PATH` is missing |
+| `APP_URL` | `http://localhost:3001` | web app address used in reset links |
+| `SMTP_HOST` … `MAIL_FROM` | unset | send real email (otherwise printed to console) |
+| `API_PROXY_TARGET` (web) | unset | proxy `/api/*` to this API; pair with `NEXT_PUBLIC_API_URL=` |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | where the frontend finds the API |
 
 - Accounts use email + password (scrypt-hashed), with an httpOnly session
@@ -97,6 +102,48 @@ history is stored per user in the database. API docs: http://localhost:8000/api/
 - Bad input gets 400/411/413/415, missing sign-in 401, and a missing model or
   database 503, each with a message saying what to do.
 - The UI has no offline mode: every score, metric and explanation comes from the API.
+
+### Docker
+
+```bash
+docker compose up --build            # Postgres + API + web app at http://localhost:3000
+```
+
+Mounts `./fraud_model.joblib` into the API (set `MODEL_FILE` to use another).
+`API_PORT` / `WEB_PORT` change the published ports.
+
+### Admin and feedback
+
+```bash
+python manage.py make-admin you@example.com    # then sign in again to see the Admin page
+python export_feedback.py                      # users' corrections -> data/raw/feedback_messages.csv
+python scrub_messages.py inbox.txt --label ham # your own messages -> data/raw/user_messages.csv
+python build_dataset.py && python spamham_project_v3.py --data data/combined.csv --out fraud_model_new.joblib
+python compare_models.py fraud_model.joblib fraud_model_new.joblib
+```
+
+Password-reset emails print to the API console unless `SMTP_HOST` (plus
+`SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`) is set.
+
+### Deploying (Render + Vercel)
+
+1. Upload the trained model somewhere with a public HTTPS URL (e.g. a GitHub
+   release asset) and note its SHA-256 (`shasum -a 256 fraud_model.joblib`).
+2. Render: *New → Blueprint* on this repo. It creates the API from
+   `render.yaml` plus a Postgres database; fill in `MODEL_URL`,
+   `MODEL_SHA256` and `APP_URL` (your Vercel address).
+3. Vercel: import the repo with root directory `frontend`, and set
+   `API_PROXY_TARGET=https://<your-api>.onrender.com` and `NEXT_PUBLIC_API_URL=`
+   (empty). The web app then proxies `/api/*` to the API, so the session
+   cookie is first-party and no CORS setup is needed.
+4. Sign up in the deployed app, then run `python manage.py make-admin EMAIL`
+   with `DATABASE_URL` set to the Render database's external URL.
+
+To call the API directly from another site instead of proxying, set
+`ALLOWED_ORIGINS=https://your-app.example`, `COOKIE_SAMESITE=none` and
+`COOKIE_SECURE=1` on the API. Some browsers block such cross-site cookies,
+which is why the proxy is the default. Behind a load balancer, set uvicorn's
+`FORWARDED_ALLOW_IPS` so login rate limiting sees real client addresses.
 
 ### Tests
 
