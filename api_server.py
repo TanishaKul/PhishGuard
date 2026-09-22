@@ -117,7 +117,7 @@ def create_app(model_path: Path | None = None, database: Database | None = None,
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         model.load(model_path)
-        database.create_tables()
+        database.migrate()
         yield
 
     app = FastAPI(title="PhishGuard API", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")

@@ -8,6 +8,7 @@ It defaults to a local SQLite file for development.
 """
 
 import os
+from pathlib import Path
 from datetime import datetime, timezone
 
 from sqlalchemy import (
@@ -94,5 +95,18 @@ class Database:
         self.engine = create_engine(self.url, pool_pre_ping=True, connect_args=connect_args)
         self.sessionmaker = sessionmaker(self.engine, expire_on_commit=False)
 
-    def create_tables(self):
-        Base.metadata.create_all(self.engine)
+    def migrate(self):
+        """Bring the schema up to date with Alembic (migrations/)."""
+        from alembic import command
+        from alembic.config import Config
+        from sqlalchemy import inspect
+
+        config = Config(str(Path(__file__).with_name("alembic.ini")))
+        config.set_main_option("script_location", str(Path(__file__).with_name("migrations")))
+        with self.engine.begin() as connection:
+            config.attributes["connection"] = connection
+            tables = set(inspect(connection).get_table_names())
+            if "users" in tables and "alembic_version" not in tables:
+                # Created by create_all before migrations existed: it matches 0001.
+                command.stamp(config, "0001")
+            command.upgrade(config, "head")

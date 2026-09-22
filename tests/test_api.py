@@ -47,6 +47,8 @@ def database(tmp_path):
     url = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{tmp_path}/test.db"
     db = Database(url)
     Base.metadata.drop_all(db.engine)
+    with db.engine.begin() as conn:
+        conn.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
     yield db
     db.engine.dispose()
 
