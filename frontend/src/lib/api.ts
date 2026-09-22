@@ -1,6 +1,7 @@
 import {
   AnalyticsData,
   ApiHealth,
+  FeedbackLabel,
   ModelReport,
   ScanHistoryItem,
   ScanResult,
@@ -164,6 +165,19 @@ export async function getScanHistory(): Promise<ScanHistoryItem[]> {
     `/api/history?limit=${HISTORY_LIMIT}`
   );
   return page.items;
+}
+
+// Scan ids look like "scan-12"; the API routes use the number.
+function scanNumber(scanId: string): string {
+  return encodeURIComponent(scanId.replace(/^scan-/, ''));
+}
+
+export async function sendFeedback(scanId: string, correctLabel: FeedbackLabel): Promise<void> {
+  await postJson(`/api/scans/${scanNumber(scanId)}/feedback`, { correctLabel });
+}
+
+export async function removeFeedback(scanId: string): Promise<void> {
+  await request(`/api/scans/${scanNumber(scanId)}/feedback`, { method: 'DELETE' });
 }
 
 export async function clearScanHistory(): Promise<number> {

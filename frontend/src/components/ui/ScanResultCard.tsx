@@ -15,7 +15,8 @@ import {
   Clock,
   Flame,
 } from 'lucide-react';
-import { ScanResult } from '@/lib/types';
+import { ApiError, removeFeedback, sendFeedback } from '@/lib/api';
+import { FeedbackLabel, ScanResult } from '@/lib/types';
 import { GaugeChart } from './GaugeChart';
 
 interface ScanResultCardProps {
@@ -31,6 +32,28 @@ export function ScanResultCard({ result, onReset }: ScanResultCardProps) {
   const [featuresExpanded, setFeaturesExpanded] = useState(false);
 
   const isFraud = result.prediction === 'FRAUD';
+  const [feedback, setFeedback] = useState<FeedbackLabel | null>(result.feedback ?? null);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const predictedLabel: FeedbackLabel = isFraud ? 'fraud' : 'legit';
+
+  const handleFeedback = async (label: FeedbackLabel) => {
+    setFeedbackBusy(true);
+    setFeedbackError(null);
+    try {
+      if (feedback === label) {
+        await removeFeedback(result.id);
+        setFeedback(null);
+      } else {
+        await sendFeedback(result.id, label);
+        setFeedback(label);
+      }
+    } catch (err) {
+      setFeedbackError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
 
   const handleCopy = () => {
     const text = `PHISHGUARD SCAN REPORT
@@ -453,6 +476,48 @@ Recommended Action: ${result.recommendedAction.action}`;
             </div>
           </div>
         )}
+      </div>
+
+      {/* Feedback: was the verdict right? */}
+      <div className="mt-5 p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-xs text-slate-300">
+          {feedback === null ? (
+            'Was this result right?'
+          ) : feedback === predictedLabel ? (
+            <span className="text-emerald-400">Thanks — you confirmed this result.</span>
+          ) : (
+            <span className="text-amber-400">
+              Thanks — reported as {feedback === 'fraud' ? 'fraud' : 'legitimate'}. It will be used to retrain the model.
+            </span>
+          )}
+          {feedbackError && <span className="block text-rose-400 mt-1">{feedbackError}</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleFeedback(predictedLabel)}
+            disabled={feedbackBusy}
+            aria-pressed={feedback === predictedLabel}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${
+              feedback === predictedLabel
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+            }`}
+          >
+            Correct
+          </button>
+          <button
+            onClick={() => handleFeedback(isFraud ? 'legit' : 'fraud')}
+            disabled={feedbackBusy}
+            aria-pressed={feedback !== null && feedback !== predictedLabel}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${
+              feedback !== null && feedback !== predictedLabel
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+            }`}
+          >
+            Wrong — it&apos;s {isFraud ? 'legitimate' : 'fraud'}
+          </button>
+        </div>
       </div>
 
       {/* Footer Action Bar */}

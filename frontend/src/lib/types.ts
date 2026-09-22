@@ -64,7 +64,11 @@ export interface ScanResult {
   recommendedAction: RecommendedAction;
   timestamp: string;
   latencyMs: number;
+  // The user's verdict on this result, if they gave one.
+  feedback?: FeedbackLabel | null;
 }
+
+export type FeedbackLabel = 'fraud' | 'legit';
 
 export interface FeatureContribution {
   term: string;
@@ -98,6 +102,7 @@ export interface ScanHistoryItem {
   reasonsCount: number;
   topReason?: string;
   detectedCategories: string[];
+  feedback: FeedbackLabel | null;
   // Full API response, kept so the detail view shows exactly what was returned.
   result: ScanResult;
 }
