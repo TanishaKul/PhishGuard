@@ -13,8 +13,9 @@ import {
 const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const API_URL_KEY = 'phishguard_api_url';
 const THRESHOLD_KEY = 'phishguard_threshold';
-const HISTORY_KEY = 'phishguard_history';
-const HISTORY_LIMIT = 100;
+const HISTORY_LIMIT = 500;
+
+export const SIGNED_OUT_EVENT = 'phishguard:signed-out';
 
 export const START_API_HINT = 'Start it with: python api_server.py --port 8000';
 
@@ -70,7 +71,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${getApiUrl()}${path}`;
   let response: Response;
   try {
-    response = await fetch(url, init);
+    // Send the session cookie; the API only accepts credentials from allowed origins.
+    response = await fetch(url, { ...init, credentials: 'include' });
   } catch {
     throw new ApiError(`Cannot reach the fraud-detection API at ${getApiUrl()}.`, 0, START_API_HINT);
   }
@@ -82,6 +84,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // Non-JSON body; handled below.
   }
 
+  if (response.status === 401 && !path.startsWith('/api/auth/')) {
+    // Session expired mid-use; the app shell listens and redirects to sign-in.
+    window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+  }
   if (!response.ok) {
     const err = (body ?? {}) as { error?: string; hint?: string };
     throw new ApiError(
@@ -113,44 +119,56 @@ export function getModelReport(): Promise<ModelReport> {
   return reportPromise;
 }
 
-export async function scanMessage(message: string): Promise<ScanResult> {
-  const threshold = getThresholdOverride();
-  const result = await request<ScanResult>('/api/scan', {
+function postJson<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(threshold === null ? { message } : { message, threshold }),
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
-  saveToHistory(result);
-  return result;
 }
 
-function saveToHistory(result: ScanResult) {
-  const item: ScanHistoryItem = {
-    id: result.id,
-    timestamp: result.timestamp,
-    message: result.message,
-    prediction: result.prediction,
-    riskLevel: result.riskLevel,
-    riskScore: result.riskScore,
-    probability: result.probability,
-    confidence: Number((Math.max(result.probability, 1 - result.probability) * 100).toFixed(1)),
-    reasonsCount: result.reasons.length,
-    topReason: result.reasons[0],
-    detectedCategories: result.detectedSignals.map((s) => s.category),
-    result,
-  };
-  writeStorage(HISTORY_KEY, JSON.stringify([item, ...getScanHistory()].slice(0, HISTORY_LIMIT)));
+export interface SessionUser {
+  email: string;
 }
 
-// Scans made in this browser. There is no server-side history. Entries without
-// a saved API result were written by the old in-browser mock engine; drop them.
-export function getScanHistory(): ScanHistoryItem[] {
+export function register(email: string, password: string): Promise<SessionUser> {
+  return postJson<SessionUser>('/api/auth/register', { email, password });
+}
+
+export function login(email: string, password: string): Promise<SessionUser> {
+  return postJson<SessionUser>('/api/auth/login', { email, password });
+}
+
+export async function logout(): Promise<void> {
+  await postJson('/api/auth/logout');
+}
+
+// The signed-in user, or null when there is no valid session.
+export async function getCurrentUser(): Promise<SessionUser | null> {
   try {
-    const parsed = JSON.parse(readStorage(HISTORY_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed.filter((item) => item && item.result) : [];
-  } catch {
-    return [];
+    return await request<SessionUser>('/api/auth/me');
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) return null;
+    throw err;
   }
+}
+
+export function scanMessage(message: string): Promise<ScanResult> {
+  const threshold = getThresholdOverride();
+  return postJson<ScanResult>('/api/scan', threshold === null ? { message } : { message, threshold });
+}
+
+// The signed-in user's scans, newest first, from the API's database.
+export async function getScanHistory(): Promise<ScanHistoryItem[]> {
+  const page = await request<{ total: number; items: ScanHistoryItem[] }>(
+    `/api/history?limit=${HISTORY_LIMIT}`
+  );
+  return page.items;
+}
+
+export async function clearScanHistory(): Promise<number> {
+  const res = await request<{ deleted: number }>('/api/history', { method: 'DELETE' });
+  return res.deleted;
 }
 
 const CATEGORY_LABELS: Record<string, { name: string; color: string }> = {
@@ -171,8 +189,8 @@ function dayKey(timestamp: string): string {
   return timestamp.slice(0, 10);
 }
 
-// Aggregates computed from this browser's scan history — nothing here is sample data.
-export function getAnalyticsData(history: ScanHistoryItem[] = getScanHistory()): AnalyticsData {
+// Aggregates computed from the user's scan history — nothing here is sample data.
+export function getAnalyticsData(history: ScanHistoryItem[]): AnalyticsData {
   const fraud = history.filter((h) => h.prediction === 'FRAUD');
 
   const today = new Date();

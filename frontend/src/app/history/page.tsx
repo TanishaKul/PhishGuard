@@ -4,13 +4,15 @@ import React, { useState, useEffect } from 'react';
 import {
   Search,
   Download,
+  Trash2,
   ExternalLink,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { DetailDrawer } from '@/components/ui/DetailDrawer';
-import { getScanHistory } from '@/lib/api';
+import { ApiErrorPanel } from '@/components/ui/ApiErrorPanel';
+import { ApiError, clearScanHistory, getScanHistory } from '@/lib/api';
 import { ScanHistoryItem } from '@/lib/types';
 
 export default function HistoryPage() {
@@ -22,9 +24,26 @@ export default function HistoryPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedItem, setSelectedItem] = useState<ScanHistoryItem | null>(null);
 
-  useEffect(() => {
-    setHistory(getScanHistory());
-  }, []);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  const load = () => {
+    setError(null);
+    getScanHistory()
+      .then(setHistory)
+      .catch((err) => setError(err instanceof ApiError ? err : new ApiError(String(err), 0)));
+  };
+
+  useEffect(load, []);
+
+  const handleClear = async () => {
+    if (!window.confirm(`Delete all ${history.length} scans from your history? This cannot be undone.`)) return;
+    try {
+      await clearScanHistory();
+      setHistory([]);
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError(String(err), 0));
+    }
+  };
 
   const handleSort = (field: 'timestamp' | 'riskScore' | 'confidence') => {
     if (sortField === field) {
@@ -97,14 +116,26 @@ export default function HistoryPage() {
           </p>
         </div>
 
-        <button
-          onClick={handleExportCSV}
-          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold border border-slate-800 flex items-center gap-2 transition-colors self-start md:self-auto cursor-pointer"
-        >
-          <Download className="w-4 h-4 text-cyan-400" />
-          <span>Export Logs (.CSV)</span>
-        </button>
+        <div className="flex items-center gap-2 self-start md:self-auto">
+          <button
+            onClick={handleExportCSV}
+            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold border border-slate-800 flex items-center gap-2 transition-colors cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-cyan-400" />
+            <span>Export Logs (.CSV)</span>
+          </button>
+          <button
+            onClick={handleClear}
+            disabled={history.length === 0}
+            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-rose-950/40 disabled:opacity-40 text-slate-200 text-xs font-semibold border border-slate-800 flex items-center gap-2 transition-colors cursor-pointer"
+          >
+            <Trash2 className="w-4 h-4 text-rose-400" />
+            <span>Clear History</span>
+          </button>
+        </div>
       </div>
+
+      {error && <ApiErrorPanel error={error} onRetry={load} />}
 
       {/* Filter & Search Bar */}
       <div className="p-4 rounded-xl glass-panel border border-slate-800 flex flex-wrap items-center justify-between gap-4">

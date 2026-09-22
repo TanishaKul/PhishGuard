@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, getHealth, getModelReport } from './api';
+import { ApiError, SIGNED_OUT_EVENT, SessionUser, getCurrentUser, getHealth, getModelReport } from './api';
 import { ApiHealth, ModelReport } from './types';
 
 function toApiError(err: unknown): ApiError {
@@ -52,4 +52,49 @@ export function useApiHealth() {
   }, []);
 
   return { health, error };
+}
+
+type SessionState =
+  | { status: 'loading' }
+  | { status: 'signed-in'; user: SessionUser }
+  | { status: 'signed-out' }
+  | { status: 'error'; error: ApiError };
+
+// Shared across pages so navigating does not re-check the session each time.
+let sessionCache: SessionState = { status: 'loading' };
+const listeners = new Set<(s: SessionState) => void>();
+
+function setSession(state: SessionState) {
+  sessionCache = state;
+  listeners.forEach((l) => l(state));
+}
+
+export function refreshSession() {
+  return getCurrentUser()
+    .then((user) => setSession(user ? { status: 'signed-in', user } : { status: 'signed-out' }))
+    .catch((err) => setSession({ status: 'error', error: toApiError(err) }));
+}
+
+export function markSignedIn(user: SessionUser) {
+  setSession({ status: 'signed-in', user });
+}
+
+export function markSignedOut() {
+  setSession({ status: 'signed-out' });
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener(SIGNED_OUT_EVENT, () => setSession({ status: 'signed-out' }));
+}
+
+export function useSession() {
+  const [state, setState] = useState<SessionState>(sessionCache);
+  useEffect(() => {
+    listeners.add(setState);
+    if (sessionCache.status === 'loading' || sessionCache.status === 'error') refreshSession();
+    return () => {
+      listeners.delete(setState);
+    };
+  }, []);
+  return state;
 }

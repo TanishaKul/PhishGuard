@@ -17,17 +17,31 @@ import {
   Cell,
 } from 'recharts';
 import { AppShell } from '@/components/layout/AppShell';
-import { getAnalyticsData } from '@/lib/api';
+import { ApiError, getAnalyticsData, getScanHistory } from '@/lib/api';
+import { ApiErrorPanel, LoadingPanel } from '@/components/ui/ApiErrorPanel';
 import { AnalyticsData } from '@/lib/types';
 
 export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
 
-  useEffect(() => {
-    setData(getAnalyticsData());
-  }, []);
+  const [error, setError] = useState<ApiError | null>(null);
 
-  if (!data) return null;
+  const load = () => {
+    setError(null);
+    getScanHistory()
+      .then((items) => setData(getAnalyticsData(items)))
+      .catch((err) => setError(err instanceof ApiError ? err : new ApiError(String(err), 0)));
+  };
+
+  useEffect(load, []);
+
+  if (!data) {
+    return (
+      <AppShell>
+        {error ? <ApiErrorPanel error={error} onRetry={load} /> : <LoadingPanel label="Loading your scan history..." />}
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -44,7 +58,7 @@ export default function AnalyticsPage() {
           </div>
           <h2 className="text-xl font-bold text-slate-100">Threat Analytics & Longitudinal Trends</h2>
           <p className="text-xs text-slate-400">
-            Trends, severity distribution and signal frequencies computed from the scans made in this browser.
+            Trends, severity distribution and signal frequencies computed from your scan history.
           </p>
         </div>
       </div>

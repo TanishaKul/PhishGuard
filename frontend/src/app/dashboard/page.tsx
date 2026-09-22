@@ -45,9 +45,19 @@ export default function DashboardPage() {
   const [scanError, setScanError] = useState<ApiError | null>(null);
   const { report } = useModelReport();
 
+  const [historyError, setHistoryError] = useState<ApiError | null>(null);
+
+  const loadHistory = () =>
+    getScanHistory()
+      .then((items) => {
+        setHistory(items);
+        setAnalytics(getAnalyticsData(items));
+        setHistoryError(null);
+      })
+      .catch((err) => setHistoryError(err instanceof ApiError ? err : new ApiError(String(err), 0)));
+
   useEffect(() => {
-    setAnalytics(getAnalyticsData());
-    setHistory(getScanHistory());
+    loadHistory();
   }, []);
 
   const handleQuickScan = async () => {
@@ -58,8 +68,7 @@ export default function DashboardPage() {
     try {
       const res = await scanMessage(quickInput);
       setQuickResult(res);
-      setHistory(getScanHistory());
-      setAnalytics(getAnalyticsData());
+      await loadHistory();
     } catch (err) {
       setScanError(err instanceof ApiError ? err : new ApiError(String(err), 0));
     } finally {
@@ -112,6 +121,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {historyError && <ApiErrorPanel error={historyError} onRetry={loadHistory} />}
+
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Total Scans */}
@@ -125,7 +136,7 @@ export default function DashboardPage() {
               {totalScans.toLocaleString()}
             </div>
             <span className="text-[11px] text-slate-400 flex items-center gap-1 font-medium">
-              <TrendingUp className="w-3 h-3" /> Scans made in this browser
+              <TrendingUp className="w-3 h-3" /> Your scans
             </span>
           </div>
           <div className="w-full bg-slate-800/80 h-1.5 rounded-full overflow-hidden">
