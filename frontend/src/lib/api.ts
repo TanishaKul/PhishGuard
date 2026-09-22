@@ -140,6 +140,15 @@ export function login(email: string, password: string): Promise<SessionUser> {
   return postJson<SessionUser>('/api/auth/login', { email, password });
 }
 
+export async function forgotPassword(email: string): Promise<string> {
+  const res = await postJson<{ message: string }>('/api/auth/forgot', { email });
+  return res.message;
+}
+
+export function resetPassword(token: string, password: string): Promise<SessionUser> {
+  return postJson<SessionUser>('/api/auth/reset', { token, password });
+}
+
 export async function logout(): Promise<void> {
   await postJson('/api/auth/logout');
 }
