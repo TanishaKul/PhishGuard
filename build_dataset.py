@@ -16,6 +16,7 @@ Sources (licences apply to the raw data, which is not committed):
   smishtank smishtank.com community submissions (manual download)     CC BY-NC-SA 4.0
             -> non-commercial use only; place the file at data/raw/smishtank.csv
   user      your own messages, prepared with scrub_messages.py -> data/raw/user_messages.csv
+  feedback  app users' corrections, exported with export_feedback.py -> data/raw/feedback_messages.csv
 
 None of the public sources contain modern *legitimate* messages (OTPs, bank
 alerts, delivery updates); add real ones via scrub_messages.py.
@@ -201,14 +202,14 @@ def load_smishtank(path: Path) -> pd.DataFrame:
                          "source": "smishtank"})
 
 
-def load_user(path: Path) -> pd.DataFrame:
+def load_user(path: Path, source: str = "user") -> pd.DataFrame:
     df = pd.read_csv(path, dtype=str)
     if not {"label", "message"}.issubset(df.columns):
         raise ValueError(f"{path}: expected columns label,message (write it with scrub_messages.py)")
     bad = set(df["label"].unique()) - {"ham", "spam"}
     if bad:
         raise ValueError(f"{path}: unknown labels {sorted(bad)}; use ham or spam")
-    return df[["label", "message"]].assign(source="user")
+    return df[["label", "message"]].assign(source=source)
 
 
 def _key(message: str) -> str:
@@ -218,6 +219,9 @@ def _key(message: str) -> str:
 def build(uci_path: Path, raw: Path) -> pd.DataFrame:
     parts = [load_uci(uci_path)]
     # Your own labelled messages come right after UCI, so they win de-duplication.
+    # Feedback first: a user's correction outranks the dataset's original label.
+    if (raw / "feedback_messages.csv").exists():
+        parts.insert(0, load_user(raw / "feedback_messages.csv", source="feedback"))
     if (raw / "user_messages.csv").exists():
         parts.append(load_user(raw / "user_messages.csv"))
     loaders = [
@@ -241,7 +245,7 @@ def build(uci_path: Path, raw: Path) -> pd.DataFrame:
     # so a scam copy of a UCI message keeps its original label.
     df = df.assign(_key=df["message"].map(_key)).drop_duplicates("_key").drop(columns="_key")
 
-    new = ~df["source"].isin(["uci", "user"])
+    new = ~df["source"].isin(["uci", "user", "feedback"])
     capped = (df[new].assign(_t=template_groups(df.loc[new, "message"]))
               .groupby("_t", sort=False).head(MAX_PER_TEMPLATE).drop(columns="_t"))
     print(f"Capped repeated campaigns: {int(new.sum())} -> {len(capped)} scam messages")
