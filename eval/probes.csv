@@ -1,0 +1,10 @@
+label,kind,message
+spam,delivery,USPS: Your package is on hold due to an incomplete address. Update here: usps-redelivery-help.com
+spam,bank KYC,"HDFC Bank: your KYC is pending, account will be suspended today. Verify at hdfc-kyc.in"
+spam,toll,E-ZPass: You have an unpaid toll of $4.15. Pay within 24h to avoid a $50 late fee: ezpass-pay.top
+spam,family impersonation,"Hi Mum, I broke my phone, this is my new number. Can you send me 200 for rent, I'll pay back tomorrow x"
+spam,job,"Hello, we saw your resume. Remote part-time job, earn 300-800 per day. Contact our HR on WhatsApp"
+ham,bank alert,Your account ending 4421 was debited $45.00 at Starbucks. If this wasn't you call the number on your card.
+ham,OTP,Your verification code is 482913. Do not share this code with anyone.
+ham,delivery,Your Amazon order has shipped and will arrive Tuesday.
+ham,chat,"I won't be able to come, wondering if you can update me on the free tickets later"

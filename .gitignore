@@ -8,3 +8,4 @@ __pycache__/
 venv/
 model_report.json
 data/
+!eval/*.csv
