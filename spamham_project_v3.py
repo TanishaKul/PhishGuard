@@ -51,6 +51,11 @@ RANDOM_STATE = 42
 COST_FALSE_NEGATIVE = 10.0
 COST_FALSE_POSITIVE = 1.0
 
+# Share of real SMS traffic assumed to be fraud when picking the threshold.
+# Combined training data is mostly scams, far above real traffic, so costs are
+# re-weighted to this rate; 0.126 is the spam rate of the UCI corpus.
+DEFAULT_PREVALENCE = 0.126
+
 # Probability at or above which a flagged message is HIGH rather than MEDIUM risk.
 HIGH_RISK_PROBABILITY = 0.70
 
@@ -83,7 +88,8 @@ def load_data(path: Path) -> pd.DataFrame:
             df["v2"] = df["v2"].fillna("") + tails
         df = df[["v1", "v2"]].rename(columns={"v1": "label", "v2": "message"})
     elif {"label", "message"}.issubset(df.columns):
-        df = df[["label", "message"]]
+        # data/combined.csv (build_dataset.py) also carries a source column.
+        df = df[[c for c in ("label", "message", "source") if c in df.columns]]
     else:
         raise ValueError(
             f"Expected columns ('v1','v2') or ('label','message'); got {list(df.columns)}"
@@ -295,22 +301,29 @@ def build_features() -> FeatureUnion:
 # --------------------------------------------------------------------------
 # Evaluation
 # --------------------------------------------------------------------------
-def optimal_threshold(y_true, y_score) -> float:
+def optimal_threshold(y_true, y_score, prevalence=None) -> float:
     """Pick the threshold minimising expected cost under the stated cost matrix.
 
     Accuracy is the wrong objective at ~13% positives; this makes the
     fraud-vs-false-alarm trade-off an explicit, defensible choice. Call it on
     out-of-fold training scores, never on the test split.
+
+    With `prevalence`, errors are re-weighted as if fraud made up that share
+    of messages, so a scam-heavy training set does not push the threshold
+    down to where normal traffic drowns in false alarms.
     """
     precision, recall, thresholds = precision_recall_curve(y_true, y_score)
     n_pos = y_true.sum()
+    pos_rate = n_pos / len(y_true)
+    w_pos, w_neg = ((prevalence / pos_rate, (1 - prevalence) / (1 - pos_rate))
+                    if prevalence is not None else (1.0, 1.0))
     best_t, best_cost = 0.5, float("inf")
 
     for p, r, t in zip(precision[:-1], recall[:-1], thresholds):
         tp = r * n_pos
         fn = n_pos - tp
         fp = (tp / p - tp) if p > 0 else 0.0
-        cost = COST_FALSE_NEGATIVE * fn + COST_FALSE_POSITIVE * fp
+        cost = COST_FALSE_NEGATIVE * w_pos * fn + COST_FALSE_POSITIVE * w_neg * fp
         if cost < best_cost:
             best_cost, best_t = cost, t
 
@@ -558,6 +571,28 @@ def threshold_curve(y_true, y_score):
     return curve
 
 
+def per_source_metrics(model, X_test, y_test, sources, threshold):
+    """Fraud recall and false-alarm rate for each data source in the test split."""
+    flagged = model.predict_proba(X_test)[:, 1] >= threshold
+    y = np.asarray(y_test)
+    rows = []
+    for source in sorted(set(sources)):
+        mask = np.asarray(sources) == source
+        fraud, legit = mask & (y == 1), mask & (y == 0)
+        rows.append({
+            "source": source,
+            "fraudCount": int(fraud.sum()),
+            "recall": float(flagged[fraud].mean()) if fraud.any() else None,
+            "legitCount": int(legit.sum()),
+            "falseAlarmRate": float(flagged[legit].mean()) if legit.any() else None,
+        })
+        print(f"  {source:10s} fraud {int(fraud.sum()):5d} recall "
+              f"{rows[-1]['recall'] if rows[-1]['recall'] is not None else float('nan'):.3f}   "
+              f"legit {int(legit.sum()):5d} false alarms "
+              f"{rows[-1]['falseAlarmRate'] if rows[-1]['falseAlarmRate'] is not None else float('nan'):.3f}")
+    return rows
+
+
 def error_analysis(messages, y_test, model, threshold, n=10):
     """What the model gets wrong on the held-out split — judges ask this every single time."""
     scores = model.predict_proba(messages)[:, 1]
@@ -601,9 +636,14 @@ def main():
     parser = argparse.ArgumentParser(description="SMS fraud detection")
     parser.add_argument("--data", type=Path, default=Path("spam.csv"))
     parser.add_argument("--out", type=Path, default=Path("fraud_model.joblib"))
+    parser.add_argument("--prevalence", type=float, default=DEFAULT_PREVALENCE,
+                        help="share of real traffic assumed to be fraud when picking the threshold")
     parser.add_argument("--eda", action="store_true",
                         help="also regenerate the EDA plots (opens plot windows)")
     args = parser.parse_args()
+    if not 0 < args.prevalence < 1:
+        print(f"error: --prevalence must be between 0 and 1; got {args.prevalence}", file=sys.stderr)
+        return 1
 
     try:
         df = load_data(args.data)
@@ -649,7 +689,7 @@ def main():
         oof = cross_val_predict(pipe, X_train, y_train, groups=groups_train, cv=cv,
                                 method="predict_proba")[:, 1]
         cv_pr_auc = float(average_precision_score(y_train, oof))
-        threshold = optimal_threshold(y_train.to_numpy(), oof)
+        threshold = optimal_threshold(y_train.to_numpy(), oof, args.prevalence)
         print(f"\n{name}: CV PR-AUC {cv_pr_auc:.4f}, cost-optimal threshold {threshold:.4f}")
 
         pipe.fit(X_train, y_train)
@@ -683,14 +723,21 @@ def main():
     best["threshold"]
 )
 
+    sources_test = (df["source"].iloc[test_idx].tolist() if "source" in df.columns
+                    else [args.data.stem] * len(test_idx))
+    print("\nPer-source results on the test split:")
+    by_source = per_source_metrics(best["model"], X_test, y_test, sources_test, best["threshold"])
+
     report = {
         "dataset": str(args.data.name),
+        "bySource": by_source,
         "metrics": {
             "modelName": best["name"],
             "threshold": best["threshold"],
             **best["test"],
             "costFnWeight": COST_FALSE_NEGATIVE,
             "costFpWeight": COST_FALSE_POSITIVE,
+            "assumedPrevalence": args.prevalence,
             "trainSamples": int(len(X_train)),
             "testSamples": int(len(X_test)),
             "fraudRateTrain": float(y_train.mean()),
