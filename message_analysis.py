@@ -10,6 +10,7 @@ what this returns and keeps no copy of them.
 import time
 
 import spamham_project_v3 as sp
+from link_risk import link_signals
 
 SIGNAL_SPECS = {
     "urgency": (
@@ -76,8 +77,8 @@ RECOMMENDED_ACTIONS = {
     "LOW": {
         "action": "NO ACTION NEEDED",
         "badge": "Below Fraud Threshold",
-        "description": "The model scored this below its fraud threshold. It was trained on "
-                       "2012 UK SMS data, so stay cautious with unfamiliar scam styles.",
+        "description": "The model scored this below its fraud threshold. Models miss new scam "
+                       "styles, so stay cautious with unexpected requests.",
         "severity": "green",
         "steps": [
             "Normal handling.",
@@ -85,6 +86,29 @@ RECOMMENDED_ACTIONS = {
         ],
     },
 }
+
+
+# Shown instead of "no action" when the model scores a message low but one of
+# its links looks dangerous. The model's verdict and score are unchanged.
+LINK_WARNING_ACTION = {
+    "action": "CHECK THE LINK BEFORE TRUSTING",
+    "badge": "Risky Link Despite Low Score",
+    "description": "The model scored this message low, but a link in it looks dangerous "
+                   "(see Detected Threat Signals).",
+    "severity": "amber",
+    "steps": [
+        "Do not open the link; go to the company's site or app directly instead.",
+        "Never enter passwords, card details or OTP codes from an SMS link.",
+        "If unsure, report the result as wrong so the model can learn from it.",
+    ],
+}
+
+
+def recommended_action(risk_level, signals):
+    risky_link = any(s["category"] == "link_risk" and s["severity"] == "high" for s in signals)
+    if risk_level == "LOW" and risky_link:
+        return LINK_WARNING_ACTION
+    return RECOMMENDED_ACTIONS[risk_level]
 
 
 def detected_signals(message, keywords):
@@ -103,6 +127,8 @@ def detected_signals(message, keywords):
             "id": f"sig-{category}", "name": name, "category": category,
             "evidence": ", ".join(matches), "severity": severity, "explanation": explanation,
         })
+
+    signals.extend(link_signals(message))
 
     exclaims = message.count("!")
     if exclaims >= 2:
@@ -142,6 +168,7 @@ def analyze(pipeline, message, threshold, index=None):
     risk_level = sp.get_risk_level(probability, threshold)
     keywords = sp.detect_suspicious_keywords(message)
     contributions = sp.term_contributions(pipeline, message, index=index)
+    signals = detected_signals(message, keywords)
     latency = round((time.perf_counter() - start) * 1000, 2)
 
     return {
@@ -154,10 +181,10 @@ def analyze(pipeline, message, threshold, index=None):
         "threshold": threshold,
         "reasons": sp.explain_prediction(message),
         "detectedCategories": list(keywords),
-        "detectedSignals": detected_signals(message, keywords),
+        "detectedSignals": signals,
         "modelFeatures": model_features(message),
         "modelContributions": contributions,
-        "recommendedAction": RECOMMENDED_ACTIONS[risk_level],
+        "recommendedAction": recommended_action(risk_level, signals),
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "latencyMs": latency,
     }

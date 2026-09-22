@@ -14,7 +14,8 @@ export type DetectedSignalCategory =
   | 'entity_currency'
   | 'entity_shortcode'
   | 'exclamation'
-  | 'obfuscation';
+  | 'obfuscation'
+  | 'link_risk';
 
 export interface DetectedSignal {
   id: string;

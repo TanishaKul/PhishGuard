@@ -396,3 +396,10 @@ def test_model_download_checksum_mismatch(model_path, database, tmp_path, monkey
     with TestClient(create_app(model_path=tmp_path / "m.joblib", database=database, extra_origins=[])) as c:
         r = c.get("/api/health")
         assert r.status_code == 503 and "checksum" in r.json()["error"]
+
+
+def test_scan_includes_link_risk_signals(client):
+    register(client)
+    result = client.post("/api/scan", json={"message": "HDFC: KYC pending, verify at hdfc-kyc.in"}).json()
+    link = [s for s in result["detectedSignals"] if s["category"] == "link_risk"]
+    assert link and link[0]["name"] == "Link Imitates a Known Brand" and link[0]["evidence"] == "hdfc-kyc.in"

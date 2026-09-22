@@ -239,6 +239,7 @@ const CATEGORY_LABELS: Record<string, { name: string; color: string }> = {
   entity_currency: { name: 'Currency', color: '#eab308' },
   entity_email: { name: 'Email Address', color: '#64748b' },
   exclamation: { name: 'Exclamation Density', color: '#a855f7' },
+  link_risk: { name: 'Risky Link', color: '#dc2626' },
 };
 
 function dayKey(timestamp: string): string {
