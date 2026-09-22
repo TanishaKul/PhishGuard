@@ -34,15 +34,36 @@ python -c "import nltk; nltk.download('stopwords')"
 
 ## Usage
 
-Place `spam.csv` beside the scripts, then:
+Place `spam.csv` beside the scripts, then train. This writes `fraud_model.joblib`
+and `model_report.json` (metrics, model comparison, threshold curve, error
+analysis), which the API serves:
 
 ```bash
-python spamham_project_v3.py --data spam.csv
+python spamham_project_v3.py --data spam.csv          # add --eda to regenerate the plots
 ```
+
+Model selection and the decision threshold both come from 5-fold out-of-fold
+predictions on the training split; the test split is only used for reporting.
 
 `spamham_project_v2.py` is the original Colab export and still reads the
 dataset from Google Drive; to run it locally, drop the `google.colab` mount
 lines and point the path at `spam.csv`.
+
+## Web app
+
+```bash
+python api_server.py --port 8000                       # Python API (binds 127.0.0.1)
+cd frontend && npm install && npx next dev -p 3001     # Next.js UI
+```
+
+- `GET /api/health`, `GET /api/metrics`, `POST /api/scan` (`{"message": "...", "threshold"?: 0-1}`).
+- Messages over 5,000 characters return 413, malformed input 400/415, and a
+  missing model 503 with the command to train it.
+- The UI has no offline mode: every score, metric and explanation comes from the
+  API, and it shows the API's error if the API is down. Scan history is kept in
+  the browser's localStorage.
+- Point the UI at another API with `NEXT_PUBLIC_API_URL` or on the Settings page.
+  Allow extra browser origins with `--allow-origin https://example.com`.
 
 ## Note on the dataset
 
