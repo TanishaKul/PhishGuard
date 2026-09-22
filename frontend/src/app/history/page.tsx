@@ -2,18 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  History,
   Search,
-  Filter,
   Download,
-  ShieldAlert,
-  ShieldCheck,
-  AlertTriangle,
   ExternalLink,
   ChevronDown,
   ChevronUp,
-  Clock,
-  Trash2,
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { DetailDrawer } from '@/components/ui/DetailDrawer';

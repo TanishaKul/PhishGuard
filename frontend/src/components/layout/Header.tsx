@@ -3,15 +3,10 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useApiHealth } from '@/lib/hooks';
 import {
-  ShieldCheck,
-  Zap,
-  Activity,
-  Search,
   ScanLine,
   Clock,
-  Sparkles,
-  Sliders,
 } from 'lucide-react';
 
 const ROUTE_NAMES: Record<string, { title: string; subtitle: string }> = {
@@ -47,6 +42,7 @@ const ROUTE_NAMES: Record<string, { title: string; subtitle: string }> = {
 
 export function Header() {
   const pathname = usePathname();
+  const { health, error: healthError } = useApiHealth();
   const [time, setTime] = useState<string>('');
 
   useEffect(() => {
@@ -83,12 +79,20 @@ export function Header() {
         </div>
 
         {/* Engine Mode Pill */}
-        <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-cyan-950/40 border border-cyan-500/30 text-cyan-300 text-xs font-medium">
+        <div
+          title={healthError ? `${healthError.message} ${healthError.hint ?? ''}` : health?.model}
+          className={`flex items-center gap-2 px-2.5 py-1 rounded-md border text-xs font-medium ${
+            health
+              ? 'bg-cyan-950/40 border-cyan-500/30 text-cyan-300'
+              : 'bg-rose-950/40 border-rose-500/30 text-rose-300'
+          }`}
+        >
           <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${health ? 'bg-cyan-500' : 'bg-rose-500'}`}></span>
           </span>
-          <span className="text-[11px] font-mono font-semibold">MOCK ENGINE</span>
+          <span className="text-[11px] font-mono font-semibold">
+            {health ? 'MODEL API ONLINE' : healthError ? 'MODEL API OFFLINE' : 'CHECKING API'}
+          </span>
         </div>
 
         {/* Quick Analyze Button */}

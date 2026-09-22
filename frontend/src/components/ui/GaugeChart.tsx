@@ -6,7 +6,7 @@ import { RiskLevel } from '@/lib/types';
 interface GaugeChartProps {
   score: number; // 0 - 100
   riskLevel: RiskLevel;
-  threshold?: number; // default 4.17
+  threshold?: number; // percent
   size?: 'sm' | 'md' | 'lg';
 }
 

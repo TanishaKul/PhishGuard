@@ -1,9 +1,8 @@
 'use client';
 
 import React from 'react';
-import { X, ShieldAlert, ShieldCheck, AlertTriangle, Clock, Tag, ExternalLink } from 'lucide-react';
+import { X } from 'lucide-react';
 import { ScanHistoryItem } from '@/lib/types';
-import { scoreMessage } from '@/lib/api';
 import { ScanResultCard } from './ScanResultCard';
 
 interface DetailDrawerProps {
@@ -14,9 +13,6 @@ interface DetailDrawerProps {
 
 export function DetailDrawer({ item, isOpen, onClose }: DetailDrawerProps) {
   if (!isOpen || !item) return null;
-
-  // Generate full scan analysis for the history record
-  const fullResult = scoreMessage(item.message);
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
@@ -44,7 +40,7 @@ export function DetailDrawer({ item, isOpen, onClose }: DetailDrawerProps) {
 
         {/* Drawer Body */}
         <div className="p-6 space-y-6">
-          <ScanResultCard result={fullResult} />
+          <ScanResultCard result={item.result} />
         </div>
       </div>
     </div>
