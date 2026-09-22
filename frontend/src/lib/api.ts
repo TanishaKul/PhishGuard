@@ -130,6 +130,36 @@ function postJson<T>(path: string, body?: unknown): Promise<T> {
 
 export interface SessionUser {
   email: string;
+  isAdmin?: boolean;
+}
+
+export interface AdminStats {
+  users: number;
+  scans: number;
+  fraudScans: number;
+  feedback: number;
+  reportedWrong: number;
+  scansByDay: { date: string; count: number }[];
+  model: string | null;
+}
+
+export interface AdminFeedbackItem {
+  scanId: string;
+  message: string;
+  predicted: 'FRAUD' | 'LEGITIMATE';
+  probability: number;
+  correctLabel: 'fraud' | 'legit';
+  wrong: boolean;
+  note: string | null;
+  createdAt: string;
+}
+
+export function getAdminStats(): Promise<AdminStats> {
+  return request<AdminStats>('/api/admin/stats');
+}
+
+export async function getAdminFeedback(): Promise<AdminFeedbackItem[]> {
+  return (await request<{ items: AdminFeedbackItem[] }>('/api/admin/feedback?limit=200')).items;
 }
 
 export function register(email: string, password: string): Promise<SessionUser> {

@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useApiHealth } from '@/lib/hooks';
+import { useApiHealth, useSession } from '@/lib/hooks';
 import {
   ShieldAlert,
   LayoutDashboard,
@@ -14,6 +14,7 @@ import {
   Cpu,
   Settings,
   ChevronRight,
+  ShieldCheck,
   Radio,
 } from 'lucide-react';
 
@@ -58,6 +59,11 @@ const NAV_ITEMS = [
 export function Sidebar() {
   const pathname = usePathname();
   const { health, error: healthError } = useApiHealth();
+  const session = useSession();
+  const navItems =
+    session.status === 'signed-in' && session.user.isAdmin
+      ? [...NAV_ITEMS, { name: 'Admin', href: '/admin', icon: ShieldCheck }]
+      : NAV_ITEMS;
 
   return (
     <aside className="w-64 bg-[#090d16]/95 border-r border-slate-800/80 flex flex-col shrink-0 h-screen sticky top-0 z-30 select-none">
@@ -86,7 +92,7 @@ export function Sidebar() {
         <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
           Core Platform
         </div>
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const isActive = pathname === item.href || (item.href === '/dashboard' && pathname === '/');
           const Icon = item.icon;
 

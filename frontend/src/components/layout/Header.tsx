@@ -36,6 +36,10 @@ const ROUTE_NAMES: Record<string, { title: string; subtitle: string }> = {
     title: 'Model Evaluation & Error Analysis',
     subtitle: 'Confusion matrix, PR-AUC, ROC-AUC, cost curves & misclassification reviews',
   },
+  '/admin': {
+    title: 'Admin',
+    subtitle: 'Usage across accounts and user corrections',
+  },
   '/settings': {
     title: 'Platform Settings & Threshold Simulator',
     subtitle: 'Adjust cost ratios, simulate operating thresholds & configure API bridges',
