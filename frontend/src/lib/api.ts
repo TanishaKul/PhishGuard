@@ -20,7 +20,7 @@ const HISTORY_LIMIT = 500;
 
 export const SIGNED_OUT_EVENT = 'phishguard:signed-out';
 
-export const START_API_HINT = 'Start it with: python api_server.py --port 8000';
+const START_API_HINT = 'Start it with: python api_server.py --port 8000';
 
 export class ApiError extends Error {
   constructor(
