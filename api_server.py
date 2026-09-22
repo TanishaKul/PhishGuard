@@ -23,8 +23,10 @@ Admins (python manage.py make-admin EMAIL):
   GET    /api/admin/stats
   GET    /api/admin/feedback  ?limit=1..500
 
-Configuration (environment): MODEL_PATH, DATABASE_URL (see db.py),
+Configuration (environment): MODEL_PATH, MODEL_URL + MODEL_SHA256 (download the
+model on startup when MODEL_PATH is missing), DATABASE_URL (see db.py),
 ALLOWED_ORIGINS (comma-separated, added to localhost), COOKIE_SECURE=1 behind HTTPS,
+COOKIE_SAMESITE=none when the frontend is on another site (requires COOKIE_SECURE=1),
 APP_URL (frontend address used in reset links), SMTP_* (see mailer.py).
 
 Run: python api_server.py --port 8000
@@ -33,6 +35,7 @@ Run: python api_server.py --port 8000
 import argparse
 import os
 import re
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -83,6 +86,14 @@ class ModelState:
     load_error = None
 
     def load(self, path: Path):
+        url = os.environ.get("MODEL_URL")
+        if not path.exists() and url:
+            try:
+                download_model(url, path, os.environ.get("MODEL_SHA256"))
+            except (OSError, ValueError) as exc:
+                self.load_error = f"Could not download the model from MODEL_URL: {exc}"
+                print(f"[PhishGuard] {self.load_error}")
+                return
         if not path.exists():
             self.load_error = f"Model file {path} not found. Train it first: {TRAIN_COMMAND}"
             print(f"[PhishGuard] {self.load_error}")
@@ -100,6 +111,21 @@ class ModelState:
         self.report = data.get("report")
         self.feature_index = sp.feature_index(self.pipeline)
         print(f"[PhishGuard] Loaded {self.name} with threshold {self.threshold:.4f}")
+
+
+def download_model(url: str, path: Path, sha256: str | None):
+    import hashlib
+    import urllib.request
+
+    print(f"[PhishGuard] Downloading model from {url}")
+    with urllib.request.urlopen(url, timeout=120) as resp:
+        data = resp.read()
+    if sha256 and hashlib.sha256(data).hexdigest() != sha256.lower():
+        raise ValueError("checksum does not match MODEL_SHA256")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".part")
+    tmp.write_bytes(data)
+    tmp.replace(path)
 
 
 class Credentials(BaseModel):
@@ -131,13 +157,19 @@ MAX_NOTE_CHARS = 500
 
 def create_app(model_path: Path | None = None, database: Database | None = None,
                extra_origins: list[str] | None = None, cookie_secure: bool | None = None,
-               mail=None, app_url: str | None = None) -> FastAPI:
+               mail=None, app_url: str | None = None, cookie_samesite: str | None = None) -> FastAPI:
     model_path = model_path or Path(os.environ.get("MODEL_PATH", "fraud_model.joblib"))
     database = database or Database()
     if extra_origins is None:
         extra_origins = [o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
     if cookie_secure is None:
         cookie_secure = os.environ.get("COOKIE_SECURE") == "1"
+    cookie_samesite = (cookie_samesite or os.environ.get("COOKIE_SAMESITE", "lax")).lower()
+    if cookie_samesite not in {"lax", "strict", "none"}:
+        raise ValueError(f"COOKIE_SAMESITE must be lax, strict or none; got {cookie_samesite!r}")
+    if cookie_samesite == "none" and not cookie_secure:
+        # Browsers drop SameSite=None cookies that are not Secure, so sign-in would silently fail.
+        raise ValueError("COOKIE_SAMESITE=none requires COOKIE_SECURE=1 (HTTPS)")
 
     mail = mail or mailer.mailer_from_env()
     app_url = (app_url or os.environ.get("APP_URL", "http://localhost:3001")).rstrip("/")
@@ -243,7 +275,7 @@ def create_app(model_path: Path | None = None, database: Database | None = None,
         db.add(AuthSession(token_hash=token_hash, user_id=user.id, expires_at=expires))
         db.commit()
         response.set_cookie(auth.SESSION_COOKIE, token, max_age=int(auth.SESSION_TTL.total_seconds()),
-                            httponly=True, samesite="lax", secure=cookie_secure, path="/")
+                            httponly=True, samesite=cookie_samesite, secure=cookie_secure, path="/")
 
     # ------------------------------------------------------------- endpoints
     @app.get("/api/health")
@@ -299,7 +331,8 @@ def create_app(model_path: Path | None = None, database: Database | None = None,
         if session_token:
             db.execute(delete(AuthSession).where(AuthSession.token_hash == auth.hash_token(session_token)))
             db.commit()
-        response.delete_cookie(auth.SESSION_COOKIE, path="/")
+        response.delete_cookie(auth.SESSION_COOKIE, path="/", secure=cookie_secure,
+                               httponly=True, samesite=cookie_samesite)
         return {"signedOut": True}
 
     @app.post("/api/auth/forgot", status_code=202)
@@ -523,9 +556,14 @@ def main():
                         help="Extra CORS origin to allow (repeatable); localhost is always allowed")
     args = parser.parse_args()
 
-    app = create_app(model_path=args.model, extra_origins=args.allow_origin)
+    try:
+        app = create_app(model_path=args.model, extra_origins=args.allow_origin)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     uvicorn.run(app, host=args.host, port=args.port)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

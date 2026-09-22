@@ -368,3 +368,31 @@ def test_admin_stats_and_feedback(client, database):
     assert item["wrong"] is True and item["note"] == "my bank"
     # Admins see scrubbed text, not the original digits.
     assert "482913" not in item["message"] and "07700900123" not in item["message"]
+
+
+def test_cross_site_cookie_settings(model_path, database):
+    with pytest.raises(ValueError, match="requires COOKIE_SECURE"):
+        create_app(model_path=model_path, database=database, cookie_secure=False, cookie_samesite="none")
+    app = create_app(model_path=model_path, database=database, extra_origins=[], cookie_secure=True,
+                     cookie_samesite="none")
+    with TestClient(app, base_url="https://testserver") as c:
+        cookie = register(c).headers["set-cookie"].lower()
+        assert "samesite=none" in cookie and "secure" in cookie
+
+
+def test_model_downloads_from_model_url(model_path, database, tmp_path, monkeypatch):
+    import hashlib
+    target = tmp_path / "downloaded" / "model.joblib"
+    monkeypatch.setenv("MODEL_URL", model_path.as_uri())
+    monkeypatch.setenv("MODEL_SHA256", hashlib.sha256(model_path.read_bytes()).hexdigest())
+    with TestClient(create_app(model_path=target, database=database, extra_origins=[])) as c:
+        assert c.get("/api/health").json()["model"] == "test-lr"
+    assert target.exists()
+
+
+def test_model_download_checksum_mismatch(model_path, database, tmp_path, monkeypatch):
+    monkeypatch.setenv("MODEL_URL", model_path.as_uri())
+    monkeypatch.setenv("MODEL_SHA256", "0" * 64)
+    with TestClient(create_app(model_path=tmp_path / "m.joblib", database=database, extra_origins=[])) as c:
+        r = c.get("/api/health")
+        assert r.status_code == 503 and "checksum" in r.json()["error"]
