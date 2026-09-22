@@ -90,7 +90,7 @@ def test_scan_requires_sign_in(client):
 
 def test_register_login_logout(client):
     assert register(client).status_code == 201
-    assert client.get("/api/auth/me").json() == {"email": "user@example.com"}
+    assert client.get("/api/auth/me").json() == {"email": "user@example.com", "isAdmin": False}
 
     assert client.post("/api/auth/logout").status_code == 200
     assert client.get("/api/auth/me").status_code == 401
@@ -333,3 +333,38 @@ def test_forgot_reports_mail_failure(model_path, database):
         register(c)
         r = c.post("/api/auth/forgot", json={"email": "user@example.com"})
         assert r.status_code == 503 and "couldn't send" in r.json()["error"]
+
+
+def make_admin(database, email="user@example.com"):
+    with database.engine.begin() as conn:
+        conn.exec_driver_sql("update users set is_admin = true where email = ?"
+                             if database.url.startswith("sqlite") else
+                             "update users set is_admin = true where email = %s", (email,))
+
+
+def test_admin_endpoints_need_admin(client, database):
+    register(client)
+    assert client.get("/api/auth/me").json() == {"email": "user@example.com", "isAdmin": False}
+    r = client.get("/api/admin/stats")
+    assert r.status_code == 403 and "manage.py make-admin" in r.json()["hint"]
+    client.cookies.clear()
+    assert client.get("/api/admin/stats").status_code == 401
+
+
+def test_admin_stats_and_feedback(client, database):
+    register(client)
+    make_admin(database)
+    sid = scan_id(client, "Your verification code is 482913 call 07700900123")
+    prediction = client.get("/api/history").json()["items"][0]["prediction"]
+    wrong_label = "legit" if prediction == "FRAUD" else "fraud"
+    client.post(f"/api/scans/{sid}/feedback", json={"correctLabel": wrong_label, "note": "my bank"})
+    scan_id(client, LEGIT[0])
+
+    stats = client.get("/api/admin/stats").json()
+    assert stats["users"] == 1 and stats["scans"] == 2 and stats["feedback"] == 1 and stats["reportedWrong"] == 1
+    assert sum(d["count"] for d in stats["scansByDay"]) == 2
+
+    item = client.get("/api/admin/feedback").json()["items"][0]
+    assert item["wrong"] is True and item["note"] == "my bank"
+    # Admins see scrubbed text, not the original digits.
+    assert "482913" not in item["message"] and "07700900123" not in item["message"]

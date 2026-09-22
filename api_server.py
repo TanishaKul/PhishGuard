@@ -19,6 +19,9 @@ Signed in (session cookie):
   DELETE /api/history/{id}
   POST   /api/scans/{id}/feedback   {"correctLabel": "fraud"|"legit", "note"?: str}
   DELETE /api/scans/{id}/feedback
+Admins (python manage.py make-admin EMAIL):
+  GET    /api/admin/stats
+  GET    /api/admin/feedback  ?limit=1..500
 
 Configuration (environment): MODEL_PATH, DATABASE_URL (see db.py),
 ALLOWED_ORIGINS (comma-separated, added to localhost), COOKIE_SECURE=1 behind HTTPS,
@@ -31,7 +34,7 @@ import argparse
 import os
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -42,12 +45,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 import auth
 import mailer
 import message_analysis
+from scrub_messages import scrub
 import spamham_project_v3 as sp
 from db import AuthSession, Database, Feedback, PasswordReset, Scan, User
 
@@ -347,7 +351,51 @@ def create_app(model_path: Path | None = None, database: Database | None = None,
 
     @app.get("/api/auth/me")
     def me(user: User = Depends(current_user)):
-        return {"email": user.email}
+        return {"email": user.email, "isAdmin": user.is_admin}
+
+    def require_admin(user: User = Depends(current_user)) -> User:
+        if not user.is_admin:
+            raise ApiError(403, "Only admins can see this.",
+                           "An admin can grant access with: python manage.py make-admin EMAIL")
+        return user
+
+    @app.get("/api/admin/stats")
+    def admin_stats(admin: User = Depends(require_admin), db=Depends(get_db)):
+        since = datetime.now(timezone.utc) - timedelta(days=7)
+        recent = db.scalars(select(Scan.created_at).where(Scan.created_at >= since)).all()
+        per_day: dict[str, int] = {}
+        for created in recent:
+            day = _aware(created).astimezone().strftime("%Y-%m-%d")
+            per_day[day] = per_day.get(day, 0) + 1
+        wrong = db.scalar(select(func.count()).select_from(Feedback).join(Scan, Scan.id == Feedback.scan_id)
+                          .where(or_(and_(Scan.prediction == "FRAUD", Feedback.correct_label == "legit"),
+                                     and_(Scan.prediction == "LEGITIMATE", Feedback.correct_label == "fraud"))))
+        return {
+            "users": db.scalar(select(func.count()).select_from(User)),
+            "scans": db.scalar(select(func.count()).select_from(Scan)),
+            "fraudScans": db.scalar(select(func.count()).select_from(Scan).where(Scan.prediction == "FRAUD")),
+            "feedback": db.scalar(select(func.count()).select_from(Feedback)),
+            "reportedWrong": wrong,
+            "scansByDay": [{"date": d, "count": c} for d, c in sorted(per_day.items())],
+            "model": model.name,
+        }
+
+    @app.get("/api/admin/feedback")
+    def admin_feedback(limit: Annotated[int, Query(ge=1, le=500)] = 100,
+                       admin: User = Depends(require_admin), db=Depends(get_db)):
+        rows = db.execute(select(Feedback, Scan).join(Scan, Scan.id == Feedback.scan_id)
+                          .order_by(Feedback.created_at.desc()).limit(limit)).all()
+        return {"items": [{
+            "scanId": f"scan-{scan.id}",
+            # Admins see messages with personal details scrubbed.
+            "message": scrub(scan.message),
+            "predicted": scan.prediction,
+            "probability": scan.probability,
+            "correctLabel": fb.correct_label,
+            "wrong": (scan.prediction == "FRAUD") != (fb.correct_label == "fraud"),
+            "note": fb.note,
+            "createdAt": _timestamp(fb.created_at),
+        } for fb, scan in rows]}
 
     @app.post("/api/scan")
     def scan(body: ScanRequest, user: User = Depends(current_user), db=Depends(get_db)):
