@@ -36,11 +36,15 @@ import argparse
 import os
 import re
 import sys
+
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Literal
+from spamham_project_v3 import TextNormalizer, HandcraftedFeatures
 
+sys.modules["__main__"].TextNormalizer = TextNormalizer
+sys.modules["__main__"].HandcraftedFeatures = HandcraftedFeatures
 import joblib
 from fastapi import Cookie, Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
