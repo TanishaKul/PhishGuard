@@ -22,9 +22,13 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    event,
     false,
+    text,
 )
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 DEFAULT_DATABASE_URL = "sqlite:///data/phishguard.db"
 
@@ -116,13 +120,29 @@ class Feedback(Base):
 class Database:
     def __init__(self, url: str | None = None):
         self.url = normalize_url(url) if url else database_url()
+        parsed = make_url(self.url)
         connect_args = {}
-        if self.url.startswith("sqlite"):
-            path = self.url.removeprefix("sqlite:///")
-            if path and path != ":memory:":
-                os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            connect_args = {"check_same_thread": False}
-        self.engine = create_engine(self.url, pool_pre_ping=True, connect_args=connect_args)
+        engine_options = {"pool_pre_ping": True}
+
+        if parsed.get_backend_name() == "sqlite":
+            # SQLAlchemy uses one connection per thread for file-backed SQLite.
+            # An in-memory database must instead share one connection so the
+            # migration connection and request threads see the same schema.
+            memory_database = parsed.database in {None, "", ":memory:"}
+            connect_args["check_same_thread"] = False
+            if memory_database:
+                engine_options["poolclass"] = StaticPool
+            elif parsed.database:
+                os.makedirs(os.path.dirname(parsed.database) or ".", exist_ok=True)
+
+        self.engine = create_engine(self.url, connect_args=connect_args, **engine_options)
+        if parsed.get_backend_name() == "sqlite":
+            @event.listens_for(self.engine, "connect")
+            def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+
         self.sessionmaker = sessionmaker(self.engine, expire_on_commit=False)
 
     def migrate(self):
@@ -134,9 +154,41 @@ class Database:
         config = Config(str(Path(__file__).with_name("alembic.ini")))
         config.set_main_option("script_location", str(Path(__file__).with_name("migrations")))
         with self.engine.begin() as connection:
+            # Serialize Alembic when multiple API workers start concurrently.
+            if connection.dialect.name == "postgresql":
+                connection.execute(text("SELECT pg_advisory_xact_lock(724198231)"))
+
             config.attributes["connection"] = connection
-            tables = set(inspect(connection).get_table_names())
+            inspector = inspect(connection)
+            tables = set(inspector.get_table_names())
             if "users" in tables and "alembic_version" not in tables:
-                # Created by create_all before migrations existed: it matches 0001.
+                # Compatibility with databases created by Base.metadata.create_all
+                # before Alembic. Stamp only after verifying the complete 0001 shape;
+                # a partial/custom "users" table must fail instead of being skipped.
+                required_tables = {"users", "sessions", "scans"}
+                later_schema_objects = {"feedback", "password_resets"}
+                required_columns = {
+                    "users": {"id", "email", "password_hash", "created_at"},
+                    "sessions": {"token_hash", "user_id", "created_at", "expires_at"},
+                    "scans": {
+                        "id", "user_id", "message", "prediction", "probability",
+                        "risk_level", "threshold", "model_name", "result", "created_at",
+                    },
+                }
+                user_columns = {column["name"] for column in inspector.get_columns("users")}
+                shape_matches = (
+                    required_tables <= tables
+                    and not (later_schema_objects & tables)
+                    and "is_admin" not in user_columns
+                    and all(
+                        required_columns[table] <= {column["name"] for column in inspector.get_columns(table)}
+                        for table in required_tables
+                    )
+                )
+                if not shape_matches:
+                    raise RuntimeError(
+                        "Unversioned database does not match migration 0001; "
+                        "back it up and stamp/upgrade it explicitly."
+                    )
                 command.stamp(config, "0001")
             command.upgrade(config, "head")

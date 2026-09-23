@@ -41,8 +41,16 @@ def test_official_and_unrelated_links_not_flagged(message):
 def test_other_link_signals():
     assert "Shortened Link" in names("Claim now: bit.ly/3xYz")
     assert "Link Uses a Raw IP Address" in names("Login at http://192.168.10.5/bank")
+    assert "Link Uses a Raw IP Address" in names("Login at http://2130706433/bank")
+    assert "Link Uses a Raw IP Address" in names("Login at http://[::1]/bank")
     assert "Disguised Characters in Link" in names("Visit xn--pypal-4ve.com now")
     assert "Frequently Abused Domain Ending" in names("Prize waiting at winbig.xyz")
+
+
+def test_url_userinfo_cannot_hide_real_host():
+    assert "Brand Name Hidden Before the Real Host" in names(
+        "Sign in at https://paypal.com@evil.net/login"
+    )
 
 
 def test_each_host_reported_once():

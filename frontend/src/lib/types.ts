@@ -48,6 +48,8 @@ export interface ModelFeaturesBreakdown {
   hasPhone: boolean;
   hasCurrency: boolean;
   urgencyTermsCount: number;
+  urgencyKeywordCount: number;
+  suspiciousKeywordCount: number;
 }
 
 export interface ScanResult {
@@ -77,7 +79,7 @@ export interface FeatureContribution {
   weight: number;
 }
 
-// Exact per-feature shares of the linear model's decision score.
+// Local per-feature probability effects for one message.
 export interface ModelContributions {
   fraud: FeatureContribution[];
   legitimate: FeatureContribution[];
@@ -126,6 +128,8 @@ export interface ModelMetrics {
   f1: number;
   accuracy: number;
   expectedCost: number;
+  rawExpectedCost?: number;
+  assumedPrevalence?: number;
   costFnWeight: number;
   costFpWeight: number;
   trainSamples: number;
@@ -137,6 +141,7 @@ export interface ModelMetrics {
 
 export interface ErrorAnalysisItem {
   message: string;
+  source?: string;
   score: number;
   actual: ScanVerdict;
   predicted: ScanVerdict;
@@ -154,6 +159,7 @@ export interface ErrorAnalysisData {
 export interface ModelComparisonItem {
   name: string;
   cvPrAuc: number;
+  cvExpectedCost?: number;
   threshold: number;
   testPrAuc: number;
   testRocAuc: number;
@@ -181,6 +187,9 @@ export interface ModelReport {
   topIndicators: ThreatIndicator[];
   errorAnalysis: ErrorAnalysisData;
   keywordCategories: Record<string, string[]>;
+  explanationMethod?: 'local_probability_effect';
+  indicatorMethod?: 'average_local_probability_effect' | 'legacy_average_coefficient';
+  selectionMethod?: 'target_prevalence_cv_cost' | 'cv_pr_auc';
 }
 
 export interface ApiHealth {

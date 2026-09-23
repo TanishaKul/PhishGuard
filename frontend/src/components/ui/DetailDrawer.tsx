@@ -2,16 +2,17 @@
 
 import React from 'react';
 import { X } from 'lucide-react';
-import { ScanHistoryItem } from '@/lib/types';
+import { FeedbackLabel, ScanHistoryItem } from '@/lib/types';
 import { ScanResultCard } from './ScanResultCard';
 
 interface DetailDrawerProps {
   item: ScanHistoryItem | null;
   isOpen: boolean;
   onClose: () => void;
+  onFeedbackChange?: (feedback: FeedbackLabel | null) => void;
 }
 
-export function DetailDrawer({ item, isOpen, onClose }: DetailDrawerProps) {
+export function DetailDrawer({ item, isOpen, onClose, onFeedbackChange }: DetailDrawerProps) {
   if (!isOpen || !item) return null;
 
   return (
@@ -40,7 +41,7 @@ export function DetailDrawer({ item, isOpen, onClose }: DetailDrawerProps) {
 
         {/* Drawer Body */}
         <div className="p-6 space-y-6">
-          <ScanResultCard result={item.result} />
+          <ScanResultCard result={item.result} onFeedbackChange={onFeedbackChange} />
         </div>
       </div>
     </div>

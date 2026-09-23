@@ -38,8 +38,8 @@ SIGNAL_SPECS = {
 ENTITY_SPECS = [
     ("entity_url", sp.URL_RE, "Unverified External Hyperlink", "high",
      "Smishing messages direct victims to spoofed credential-harvesting websites."),
-    ("entity_shortcode", sp.SHORTCODE_RE, "Premium Shortcode Identifier", "medium",
-     "SMS shortcodes are leveraged in premium SMS billing fraud campaigns."),
+    ("entity_shortcode", sp.SHORTCODE_RE, "Standalone Numeric Code", "low",
+     "A standalone 4–6 digit code may be an OTP, transaction reference or premium shortcode; context is required."),
     ("entity_currency", sp.CURRENCY_RE, "Monetary / Currency Token", "medium",
      "Financial baiting using monetary figures is common in prize/refund scams."),
     ("entity_email", sp.EMAIL_RE, "Embedded Contact Email", "low",
@@ -158,7 +158,14 @@ def model_features(message):
         "hasEmail": bool(values["has_email"]),
         "hasPhone": bool(values["has_phone"]),
         "hasCurrency": bool(values["has_currency"]),
+        # Backward-compatible model feature name. The trained pipeline counts
+        # all suspicious keyword categories here, so the UI also receives the
+        # correctly named counts below instead of labelling this as urgency.
         "urgencyTermsCount": int(values["n_urgency_terms"]),
+        "urgencyKeywordCount": len(sp.detect_suspicious_keywords(message).get("urgency", [])),
+        "suspiciousKeywordCount": sum(
+            len(matches) for matches in sp.detect_suspicious_keywords(message).values()
+        ),
     }
 
 

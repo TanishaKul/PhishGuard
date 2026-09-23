@@ -7,6 +7,7 @@ interface GaugeChartProps {
   score: number; // 0 - 100
   riskLevel: RiskLevel;
   threshold?: number; // percent
+  warning?: boolean;
   size?: 'sm' | 'md' | 'lg';
 }
 
@@ -14,6 +15,7 @@ export function GaugeChart({
   score,
   riskLevel,
   threshold = 4.17,
+  warning = false,
   size = 'md',
 }: GaugeChartProps) {
   // SVG gauge constants
@@ -24,7 +26,7 @@ export function GaugeChart({
   const strokeDashoffset = circumference - (clampedScore / 100) * circumference;
 
   let strokeColor = '#10b981'; // green
-  if (riskLevel === 'MEDIUM') strokeColor = '#f59e0b';
+  if (riskLevel === 'MEDIUM' || warning) strokeColor = '#f59e0b';
   if (riskLevel === 'HIGH') strokeColor = '#ef4444';
 
   const viewBoxSize = radius * 2 + strokeWidth * 2 + 10;

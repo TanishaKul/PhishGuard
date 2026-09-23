@@ -14,10 +14,10 @@ import { ApiErrorPanel, LoadingPanel } from '@/components/ui/ApiErrorPanel';
 import {
   ApiError,
   getApiUrl,
-  getHealth,
   getThresholdOverride,
-  setApiUrl as saveApiUrl,
+  setApiUrl,
   setThresholdOverride,
+  testApiHealth,
 } from '@/lib/api';
 import { useModelReport } from '@/lib/hooks';
 
@@ -25,14 +25,14 @@ export default function SettingsPage() {
   const { report, error, retry } = useModelReport();
   const [threshold, setThreshold] = useState<number | null>(null);
   const [appliedThreshold, setAppliedThreshold] = useState<number | null>(null);
-  const [apiUrl, setApiUrl] = useState<string>('');
+  const [apiUrl, setApiUrlValue] = useState<string>('');
   const [connection, setConnection] = useState<{ ok: boolean; text: string } | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [costFn, setCostFn] = useState<number>(10.0);
   const [costFp, setCostFp] = useState<number>(1.0);
 
   useEffect(() => {
-    setApiUrl(getApiUrl());
+    setApiUrlValue(getApiUrl());
     setAppliedThreshold(getThresholdOverride());
   }, []);
 
@@ -49,13 +49,13 @@ export default function SettingsPage() {
   };
 
   const handleTestAndSave = async () => {
-    saveApiUrl(apiUrl.trim() || null);
+    const candidate = apiUrl.trim();
     setConnection(null);
     try {
-      const health = await getHealth();
+      const health = await testApiHealth(candidate);
+      setApiUrl(candidate || null);
       setConnection({ ok: true, text: `Connected: ${health.model} (threshold ${health.threshold.toFixed(4)})` });
       flash('API endpoint saved');
-      retry();
     } catch (err) {
       const e = err instanceof ApiError ? err : new ApiError(String(err), 0);
       setConnection({ ok: false, text: e.hint ? `${e.message} ${e.hint}` : e.message });
@@ -83,7 +83,16 @@ export default function SettingsPage() {
           Math.abs(p.threshold - threshold) < Math.abs(best.threshold - threshold) ? p : best
         )
       : null;
-  const simCost = point ? costFn * point.fn + costFp * point.fp : 0;
+  const testFraudRate = report?.metrics.fraudRateTest ?? 0;
+  const targetPrevalence = report?.metrics.assumedPrevalence;
+  const simCost = point
+    ? costFn * point.fn * (testFraudRate > 0 && testFraudRate < 1
+        ? (targetPrevalence ?? testFraudRate) / testFraudRate
+        : 1)
+      + costFp * point.fp * (testFraudRate < 1
+        ? (1 - (targetPrevalence ?? testFraudRate)) / (1 - testFraudRate)
+        : 1)
+    : 0;
   const simRecall = point && point.tp + point.fn ? (point.tp / (point.tp + point.fn)) * 100 : 0;
   const simPrecision = point && point.tp + point.fp ? (point.tp / (point.tp + point.fp)) * 100 : 0;
   const modelThreshold = report?.metrics.threshold ?? 0;
@@ -190,7 +199,7 @@ export default function SettingsPage() {
                 <div>
                   <span className="text-xs font-bold text-slate-200 block">Expected cost on test split:</span>
                   <span className="text-[11px] text-slate-400 font-mono">
-                    ({costFn} × {point.fn} FN) + ({costFp} × {point.fp} FP)
+                    Reweighted to {((targetPrevalence ?? testFraudRate) * 100).toFixed(1)}% target prevalence from the held-out counts
                   </span>
                 </div>
                 <div className="text-2xl font-black font-mono text-cyan-400">{simCost.toFixed(1)}</div>
@@ -279,7 +288,7 @@ export default function SettingsPage() {
               <input
                 type="text"
                 value={apiUrl}
-                onChange={(e) => setApiUrl(e.target.value)}
+                onChange={(e) => setApiUrlValue(e.target.value)}
                 placeholder="http://localhost:8000"
                 className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-cyan-400 focus:outline-none focus:border-cyan-500"
               />
@@ -318,7 +327,7 @@ export default function SettingsPage() {
             </div>
             <div className="flex justify-between text-slate-400 border-b border-slate-800/80 pb-1.5">
               <span>Dataset:</span>
-              <span className="text-slate-200">{report ? `${report.dataset} (UCI SMS, 2012)` : '—'}</span>
+              <span className="text-slate-200">{report?.dataset ?? '—'}</span>
             </div>
             <div className="flex justify-between text-slate-400">
               <span>Train / test:</span>

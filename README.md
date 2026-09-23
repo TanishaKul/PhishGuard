@@ -72,9 +72,10 @@ history is stored per user in the database. API docs: http://localhost:8000/api/
 | `ALLOWED_ORIGINS` | localhost only | extra frontend origins, comma-separated |
 | `COOKIE_SECURE` | off | set to `1` when served over HTTPS |
 | `COOKIE_SAMESITE` | `lax` | `none` only for direct cross-site calls (needs `COOKIE_SECURE=1`) |
-| `MODEL_URL`, `MODEL_SHA256` | unset | download the model on startup if `MODEL_PATH` is missing |
+| `MODEL_URL`, `MODEL_SHA256` | unset | download the model on startup; a 64-hex checksum is mandatory with `MODEL_URL` |
 | `APP_URL` | `http://localhost:3001` | web app address used in reset links |
-| `SMTP_HOST` … `MAIL_FROM` | unset | send real email (otherwise printed to console) |
+| `APP_ENV` | `development` | set to `production` to require SMTP and HTTPS model downloads |
+| `SMTP_HOST` … `MAIL_FROM` | unset | send real email; production fails closed without SMTP |
 | `API_PROXY_TARGET` (web) | unset | proxy `/api/*` to this API; pair with `NEXT_PUBLIC_API_URL=` |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | where the frontend finds the API |
 
@@ -91,33 +92,41 @@ docker compose up --build            # Postgres + API + web app at http://localh
 ```
 
 Mounts `./fraud_model.joblib` into the API (set `MODEL_FILE` to use another).
-`API_PORT` / `WEB_PORT` change the published ports.
+`API_PORT` / `WEB_PORT` change the loopback-only published ports.
 
 ### Admin and feedback
 
 ```bash
 python manage.py make-admin you@example.com    # then sign in again to see the Admin page
-python export_feedback.py                      # users' corrections -> data/raw/feedback_messages.csv
+python export_feedback.py --include-unreviewed --seed 42
 python scrub_messages.py inbox.txt --label ham # your own messages -> data/raw/user_messages.csv
 python build_dataset.py && python spamham_project_v3.py --data data/combined.csv --out fraud_model_new.joblib
 python compare_models.py fraud_model.joblib fraud_model_new.joblib
 ```
 
-Password-reset emails print to the API console unless `SMTP_HOST` (plus
-`SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`) is set.
+`export_feedback.py` refuses to run without `--include-unreviewed`. Review
+its labels and residual text first; conflicting labels are quarantined by
+`build_dataset.py`, and repeated non-UCI campaigns are capped.
+
+In development, password-reset emails print to the API console unless
+`SMTP_HOST` (plus `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`) is
+set. With `APP_ENV=production`, missing SMTP fails closed and never logs a
+live reset token.
 
 ### Deploying (Render + Vercel)
 
 1. Upload the trained model somewhere with a public HTTPS URL (e.g. a GitHub
    release asset) and note its SHA-256 (`shasum -a 256 fraud_model.joblib`).
-2. Render: *New → Blueprint* on this repo. It creates the API from
-   `render.yaml` plus a Postgres database; fill in `MODEL_URL`,
-   `MODEL_SHA256` and `APP_URL` (your Vercel address).
-3. Vercel: import the repo with root directory `frontend`, and set
-   `API_PROXY_TARGET=https://<your-api>.onrender.com` and `NEXT_PUBLIC_API_URL=`
-   (empty). The web app then proxies `/api/*` to the API, so the session
+2. Vercel: import the repo with root directory `frontend`, set
+   `NEXT_PUBLIC_API_URL=` (empty), and deploy once to obtain the public web URL.
+3. Render: *New → Blueprint* on this repo. Fill in `MODEL_URL`,
+   `MODEL_SHA256`, `APP_URL` (the Vercel URL), and the SMTP variables. The
+   blueprint's free Postgres plan is intended for demos; use a durable plan
+   before relying on accounts, history or feedback.
+4. In Vercel, set `API_PROXY_TARGET=https://<your-api>.onrender.com` and
+   redeploy. The web app then proxies `/api/*` to the API, so the session
    cookie is first-party and no CORS setup is needed.
-4. Sign up in the deployed app, then run `python manage.py make-admin EMAIL`
+5. Sign up in the deployed app, then run `python manage.py make-admin EMAIL`
    with `DATABASE_URL` set to the Render database's external URL.
 
 To call the API directly from another site instead of proxying, set
@@ -132,6 +141,18 @@ which is why the proxy is the default. Behind a load balancer, set uvicorn's
 pytest                                                 # SQLite
 TEST_DATABASE_URL=postgresql://localhost/phishguard_test pytest   # Postgres (createdb first)
 ```
+
+## Security and data notes
+
+- `MODEL_URL` downloads are bounded to 100 MB and require an exact SHA-256;
+  joblib artifacts execute Python when loaded, so the model host is trusted.
+- Feedback is untrusted. Export requires an explicit review acknowledgement,
+  conflicting labels are quarantined, and combined/custom model reports redact
+  raw error samples and private-derived indicator terms.
+- Password-reset links place tokens in URL fragments, which browsers do not send
+  to web/proxy access logs. Production refuses console delivery without SMTP.
+- Registration, sign-in, reset, and scan routes have bounded per-process limits.
+  Use a shared rate-limit store before running multiple API replicas.
 
 ## Note on the dataset
 

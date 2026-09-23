@@ -35,6 +35,10 @@ jobs:
         run: alembic upgrade head && alembic check
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/phishguard_test
+      - name: Build API image
+        run: docker build -t phishguard-api .
+      - name: API image supports its default SQLite database
+        run: docker run --rm phishguard-api python -c "from db import Database; db=Database(); db.migrate(); print('sqlite migration ok')"
 
   frontend:
     runs-on: ubuntu-latest
@@ -52,3 +56,5 @@ jobs:
       - run: npx eslint src --max-warnings 0
       - run: npx tsc --noEmit
       - run: npx next build
+      - run: npm audit --omit=dev
+      - run: docker build -t phishguard-web .

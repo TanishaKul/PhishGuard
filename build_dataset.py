@@ -217,13 +217,13 @@ def _key(message: str) -> str:
 
 
 def build(uci_path: Path, raw: Path) -> pd.DataFrame:
+    # Canonical and manually curated data win exact de-duplication. User
+    # feedback is useful only when it does not conflict with a trusted label.
     parts = [load_uci(uci_path)]
-    # Your own labelled messages come right after UCI, so they win de-duplication.
-    # Feedback first: a user's correction outranks the dataset's original label.
-    if (raw / "feedback_messages.csv").exists():
-        parts.insert(0, load_user(raw / "feedback_messages.csv", source="feedback"))
     if (raw / "user_messages.csv").exists():
         parts.append(load_user(raw / "user_messages.csv"))
+    if (raw / "feedback_messages.csv").exists():
+        parts.append(load_user(raw / "feedback_messages.csv", source="feedback"))
     loaders = [
         ("imc25.csv", load_imc25),
         ("ncsu_messages.csv", load_ncsu),
@@ -239,16 +239,31 @@ def build(uci_path: Path, raw: Path) -> pd.DataFrame:
             raise FileNotFoundError(f"{path} missing; run with --download")
 
     df = pd.concat(parts, ignore_index=True)
-    df = df[df["message"].str.len() >= 10]
+    trusted = df["source"].isin(["uci", "user", "feedback"])
+    minimum_length = df["message"].str.len() >= 5
+    dropped_short_public = int((~trusted & ~minimum_length).sum())
+    if dropped_short_public:
+        print(f"Dropped {dropped_short_public} very short public-source messages")
+    df = df[trusted | minimum_length]
 
-    # De-duplicate across sources on letters/digits only; UCI rows come first
-    # so a scam copy of a UCI message keeps its original label.
-    df = df.assign(_key=df["message"].map(_key)).drop_duplicates("_key").drop(columns="_key")
+    # Conflicting labels are unsafe to resolve by source order: any registered
+    # account could otherwise poison a canonical example. Quarantine the whole
+    # conflict for manual review rather than silently trusting either label.
+    df = df.assign(_key=df["message"].map(_key))
+    conflicts = df.groupby("_key", sort=False)["label"].nunique()
+    conflict_keys = conflicts[conflicts > 1].index
+    if len(conflict_keys):
+        print(f"Quarantined {int(df['_key'].isin(conflict_keys).sum())} rows with conflicting labels.")
+        df = df[~df["_key"].isin(conflict_keys)]
 
-    new = ~df["source"].isin(["uci", "user", "feedback"])
+    # De-duplicate across sources on letters/digits only. UCI rows are first,
+    # so a known canonical label is never silently replaced by user feedback.
+    df = df.drop_duplicates("_key").drop(columns="_key")
+
+    new = df["source"] != "uci"
     capped = (df[new].assign(_t=template_groups(df.loc[new, "message"]))
               .groupby("_t", sort=False).head(MAX_PER_TEMPLATE).drop(columns="_t"))
-    print(f"Capped repeated campaigns: {int(new.sum())} -> {len(capped)} scam messages")
+    print(f"Capped repeated non-UCI campaigns: {int(new.sum())} -> {len(capped)} messages")
     return pd.concat([df[~new], capped], ignore_index=True)
 
 

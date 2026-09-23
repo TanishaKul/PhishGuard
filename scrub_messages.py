@@ -25,6 +25,7 @@ import random
 import re
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pandas as pd
 
@@ -34,17 +35,53 @@ LABELS = {"ham": "ham", "legit": "ham", "legitimate": "ham", "0": "ham",
           "spam": "spam", "scam": "spam", "fraud": "spam", "smishing": "spam", "1": "spam"}
 
 EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]+\b")
-LINK_RE = re.compile(r"\b((?:https?://)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(/[^\s]*)?", re.I)
+URL_RE = re.compile(r"(?i)(?:https?://|www\.)[^\s<>\"']+")
+BARE_LINK_RE = re.compile(
+    r"(?i)\b(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(?:/[^\s<>\"']*)?"
+)
 DIGITS_RE = re.compile(r"\d")
 
 _rng = random.Random()
 
 
-def scrub(text: str) -> str:
-    text = EMAIL_RE.sub(lambda m: f"user{_rng.randint(100, 999)}@example.com", text)
-    # Keep the domain, drop the path (it often carries a personal token).
-    text = LINK_RE.sub(lambda m: m.group(1) + ("/xxxx" if m.group(2) else ""), text)
-    return DIGITS_RE.sub(lambda m: str(_rng.randint(0, 9)), text)
+def _scrub_url(match) -> str:
+    value = match.group(0).rstrip(".,;:!?)]}")
+    prefixed = value if "://" in value else f"https://{value}"
+    try:
+        parsed = urlsplit(prefixed)
+        host = parsed.hostname
+        port = f":{parsed.port}" if parsed.port else ""
+    except ValueError:
+        return "https://example.invalid/xxxx"
+    if not host:
+        return "https://example.invalid/xxxx"
+    scheme = parsed.scheme or "https"
+    return f"{scheme}://{host}{port}/xxxx"
+
+
+def _replace_email(match, rng: random.Random) -> str:
+    original = match.group(0).lower()
+    replacement = original
+    while replacement == original:
+        replacement = f"user{rng.randint(100, 999)}@example.com"
+    return replacement
+
+
+def scrub(text: str, rng: random.Random | None = None) -> str:
+    rng = rng or _rng
+    text = EMAIL_RE.sub(lambda match: _replace_email(match, rng), text)
+    # Keep only the actual destination host. Userinfo, query strings, fragments
+    # and paths commonly contain names, passwords and one-time tokens.
+    text = URL_RE.sub(_scrub_url, text)
+    text = BARE_LINK_RE.sub(lambda m: m.group(0).split("/", 1)[0], text)
+    text = DIGITS_RE.sub(lambda m: str(rng.randint(0, 9)
+                                         if rng.randint(0, 9) != int(m.group(0)) else
+                                         (rng.randint(0, 8) if int(m.group(0)) > 8 else rng.randint(1, 9))), text)
+    # Spreadsheet software treats these prefixes as formulas even in quoted CSV.
+    # The training normalizer removes the apostrophe, so model input is unchanged.
+    if re.match(r"^\s*[=+\-@]", text):
+        text = "'" + text
+    return text
 
 
 def read_messages(path: Path, label: str | None) -> pd.DataFrame:
@@ -91,6 +128,16 @@ def main():
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     new_file = not args.out.exists()
+    if not new_file:
+        existing = pd.read_csv(args.out, dtype=str)
+        existing_keys = {
+            "".join(ch for ch in str(message).lower() if ch.isalnum())
+            for message in existing.get("message", [])
+        }
+        keys = df["message"].map(
+            lambda message: "".join(ch for ch in str(message).lower() if ch.isalnum())
+        )
+        df = df[~keys.isin(existing_keys)].reset_index(drop=True)
     df.to_csv(args.out, mode="a", header=new_file, index=False, quoting=csv.QUOTE_MINIMAL)
 
     if not args.quiet:

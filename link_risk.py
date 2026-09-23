@@ -7,12 +7,19 @@ These are explainable rule signals shown next to the model's score; they do
 not change the score. No network lookups are made.
 """
 
+import ipaddress
 import re
+from urllib.parse import urlsplit
 
+# Match a complete URL authority first so userinfo (user@host) cannot be
+# mistaken for the real destination. Bare domains and bracketed IPv6 hosts are
+# retained for offline analysis.
 LINK_RE = re.compile(
-    r"(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}|\d{1,3}(?:\.\d{1,3}){3})"
-    r"(?::\d+)?(?:/[^\s]*)?",
-    re.I,
+    r"(?ix)"
+    r"(?:(?:https?://|www\.)[^\s<>\"']+"
+    r"|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}(?::\d+)?(?:/[^\s<>\"']*)?"
+    r"|\[[0-9a-f:]+\](?::\d+)?(?:/[^\s<>\"']*)?"
+    r"|\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:/[^\s<>\"']*)?)"
 )
 
 SHORTENERS = {
@@ -71,10 +78,64 @@ def _signal(kind, name, severity, evidence, explanation):
             "evidence": evidence, "severity": severity, "explanation": explanation}
 
 
+def _extract_hosts(message: str) -> list[str]:
+    hosts = []
+    for match in LINK_RE.finditer(message):
+        candidate = match.group(0).rstrip(".,;:!?)]}")
+        parsed_value = candidate if "://" in candidate else f"//{candidate}"
+        try:
+            host = urlsplit(parsed_value).hostname
+        except ValueError:
+            continue
+        if host:
+            hosts.append(host.lower().rstrip("."))
+    return list(dict.fromkeys(hosts))
+
+
+def _extract_userinfo(message: str) -> list[str]:
+    userinfos = []
+    for match in LINK_RE.finditer(message):
+        candidate = match.group(0).rstrip(".,;:!?)]}")
+        if "://" not in candidate:
+            continue
+        try:
+            username = urlsplit(candidate).username
+        except ValueError:
+            continue
+        if username:
+            userinfos.append(username.lower())
+    return list(dict.fromkeys(userinfos))
+
+
+def _is_ip_host(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    if re.fullmatch(r"0x[0-9a-f]+", host):
+        return True
+    if host.isdigit():
+        try:
+            return 0 <= int(host) <= 2**32 - 1
+        except ValueError:
+            return False
+    return False
+
+
 def link_signals(message: str) -> list[dict]:
     signals = []
-    for host in dict.fromkeys(m.group(1).lower() for m in LINK_RE.finditer(message)):
-        if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", host):
+    for userinfo in _extract_userinfo(message):
+        squashed = re.sub(r"[^a-z0-9]", "", userinfo)
+        for brand in BRANDS:
+            if (brand in squashed if len(brand) >= 5 else squashed.startswith(brand)):
+                signals.append(_signal(
+                    "userinfo", "Brand Name Hidden Before the Real Host", "high", userinfo,
+                    f"The URL displays {userinfo} before @, but browsers connect to the host after @.",
+                ))
+                break
+    for host in _extract_hosts(message):
+        if _is_ip_host(host):
             signals.append(_signal("ip", "Link Uses a Raw IP Address", "high", host,
                                    "Legitimate services link to named domains, not bare IP addresses."))
             continue

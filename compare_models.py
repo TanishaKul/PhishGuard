@@ -40,7 +40,11 @@ def main():
     args = parser.parse_args()
 
     try:
-        models = {path.name: joblib.load(path) for path in args.models}
+        models = {}
+        for path in args.models:
+            if path.name in models:
+                raise ValueError(f"duplicate model filename: {path.name}")
+            models[path.name] = joblib.load(path)
         test = test_split(args.data)
     except (OSError, ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -70,7 +74,7 @@ def main():
             p = m["pipeline"].predict_proba(probes["message"])[:, 1]
             verdict = np.where(p >= m["threshold"], "FRAUD", "legit")
             ok = (verdict == "FRAUD") == (probes["label"] == "spam")
-            table[name] = [f"{v} {s:.2f}{'' if good else '  ✗'}" for v, s, good in zip(verdict, p, ok)]
+            table[name] = [f"{v} {s:.2f}{'' if good else '  WRONG'}" for v, s, good in zip(verdict, p, ok)]
         print(table.to_string(index=False))
     return 0
 

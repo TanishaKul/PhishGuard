@@ -11,9 +11,9 @@ import {
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { DetailDrawer } from '@/components/ui/DetailDrawer';
-import { ApiErrorPanel } from '@/components/ui/ApiErrorPanel';
+import { ApiErrorPanel, LoadingPanel } from '@/components/ui/ApiErrorPanel';
 import { ApiError, clearScanHistory, getScanHistory } from '@/lib/api';
-import { ScanHistoryItem } from '@/lib/types';
+import { FeedbackLabel, ScanHistoryItem } from '@/lib/types';
 
 export default function HistoryPage() {
   const [history, setHistory] = useState<ScanHistoryItem[]>([]);
@@ -25,12 +25,15 @@ export default function HistoryPage() {
   const [selectedItem, setSelectedItem] = useState<ScanHistoryItem | null>(null);
 
   const [error, setError] = useState<ApiError | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const load = () => {
     setError(null);
+    setLoading(true);
     getScanHistory()
       .then(setHistory)
-      .catch((err) => setError(err instanceof ApiError ? err : new ApiError(String(err), 0)));
+      .catch((err) => setError(err instanceof ApiError ? err : new ApiError(String(err), 0)))
+      .finally(() => setLoading(false));
   };
 
   useEffect(load, []);
@@ -75,16 +78,33 @@ export default function HistoryPage() {
       return sortOrder === 'desc' ? -comparison : comparison;
     });
 
+  const handleFeedbackChange = (feedback: FeedbackLabel | null) => {
+    if (!selectedItem) return;
+    setHistory((items) => items.map((item) =>
+      item.id === selectedItem.id
+        ? { ...item, feedback, result: { ...item.result, feedback } }
+        : item
+    ));
+    setSelectedItem((item) => item
+      ? { ...item, feedback, result: { ...item.result, feedback } }
+      : item
+    );
+  };
+
   const handleExportCSV = () => {
+    const safeCell = (value: string | number) => {
+      const text = String(value);
+      return /^\s*[=+\-@]/.test(text) ? `'${text}` : text;
+    };
     const headers = ['ID', 'Timestamp', 'Verdict', 'Risk Level', 'Risk Score (%)', 'Confidence (%)', 'Message'];
     const rows = filteredHistory.map((item) => [
-      item.id,
-      item.timestamp,
-      item.prediction,
-      item.riskLevel,
+      safeCell(item.id),
+      safeCell(item.timestamp),
+      safeCell(item.prediction),
+      safeCell(item.riskLevel),
       item.riskScore,
       item.confidence,
-      `"${item.message.replace(/"/g, '""')}"`,
+      `"${safeCell(item.message).replace(/"/g, '""')}"`,
     ]);
     const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -95,6 +115,7 @@ export default function HistoryPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -136,8 +157,10 @@ export default function HistoryPage() {
       </div>
 
       {error && <ApiErrorPanel error={error} onRetry={load} />}
+      {loading && <LoadingPanel label="Loading scan history..." />}
 
-      {/* Filter & Search Bar */}
+      {!loading && (
+        <>
       <div className="p-4 rounded-xl glass-panel border border-slate-800 flex flex-wrap items-center justify-between gap-4">
         {/* Search */}
         <div className="relative flex-1 min-w-[220px]">
@@ -318,7 +341,10 @@ export default function HistoryPage() {
         item={selectedItem}
         isOpen={Boolean(selectedItem)}
         onClose={() => setSelectedItem(null)}
+        onFeedbackChange={handleFeedbackChange}
       />
+        </>
+      )}
     </AppShell>
   );
 }

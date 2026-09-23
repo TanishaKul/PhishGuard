@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { THRESHOLD_CHANGED_EVENT, getThresholdOverride } from '@/lib/api';
 import { useApiHealth, useSession } from '@/lib/hooks';
 import {
   ShieldAlert,
@@ -60,6 +61,14 @@ export function Sidebar() {
   const pathname = usePathname();
   const { health, error: healthError } = useApiHealth();
   const session = useSession();
+  const [thresholdOverride, setThresholdOverride] = useState(getThresholdOverride());
+  const effectiveThreshold = thresholdOverride ?? health?.threshold;
+
+  useEffect(() => {
+    const update = () => setThresholdOverride(getThresholdOverride());
+    window.addEventListener(THRESHOLD_CHANGED_EVENT, update);
+    return () => window.removeEventListener(THRESHOLD_CHANGED_EVENT, update);
+  }, []);
   const navItems =
     session.status === 'signed-in' && session.user.isAdmin
       ? [...NAV_ITEMS, { name: 'Admin', href: '/admin', icon: ShieldCheck }]
@@ -148,8 +157,8 @@ export function Sidebar() {
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">Threshold:</span>
-              <span className="text-cyan-400 font-semibold">{health.threshold.toFixed(4)}</span>
+              <span className="text-slate-400">{thresholdOverride === null ? 'Model threshold:' : 'Effective:'}</span>
+              <span className="text-cyan-400 font-semibold">{effectiveThreshold?.toFixed(4) ?? '—'}</span>
             </div>
           </div>
         ) : (

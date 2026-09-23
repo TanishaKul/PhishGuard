@@ -18,15 +18,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [session.status, router, pathname]);
 
-  useEffect(() => {
-    // History used to live in localStorage; it is in the database now.
-    try {
-      localStorage.removeItem('phishguard_history');
-    } catch {
-      // Storage blocked; nothing to clean up.
-    }
-  }, []);
-
   if (session.status !== 'signed-in') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#070a12] text-slate-100 cyber-grid-bg p-6">

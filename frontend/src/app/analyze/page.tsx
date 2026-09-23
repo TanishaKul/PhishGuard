@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ScanLine,
   Eraser,
@@ -11,7 +11,7 @@ import {
 import { AppShell } from '@/components/layout/AppShell';
 import { ScanResultCard } from '@/components/ui/ScanResultCard';
 import { ApiErrorPanel } from '@/components/ui/ApiErrorPanel';
-import { ApiError, scanMessage } from '@/lib/api';
+import { ApiError, getThresholdOverride, scanMessage } from '@/lib/api';
 import { useApiHealth } from '@/lib/hooks';
 import { ScanResult } from '@/lib/types';
 
@@ -62,12 +62,16 @@ export default function AnalyzePage() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanStepIndex, setScanStepIndex] = useState(0);
   const [result, setResult] = useState<ScanResult | null>(null);
+  const scanRequest = useRef(0);
 
   const charCount = message.length;
   const wordCount = message.trim() ? message.trim().split(/\s+/).length : 0;
+  const thresholdOverride = getThresholdOverride();
+  const effectiveThreshold = thresholdOverride ?? health?.threshold;
 
   const handleScan = async () => {
     if (!message.trim()) return;
+    const current = ++scanRequest.current;
 
     setIsScanning(true);
     setResult(null);
@@ -80,22 +84,28 @@ export default function AnalyzePage() {
     }, 180);
 
     try {
-      setResult(await scanMessage(message));
+      const scanned = await scanMessage(message);
+      if (scanRequest.current === current) setResult(scanned);
     } catch (err) {
-      setError(err instanceof ApiError ? err : new ApiError(String(err), 0));
+      if (scanRequest.current === current) {
+        setError(err instanceof ApiError ? err : new ApiError(String(err), 0));
+      }
     } finally {
       clearInterval(stepInterval);
-      setIsScanning(false);
+      if (scanRequest.current === current) setIsScanning(false);
     }
   };
 
   const handleClear = () => {
+    if (isScanning) return;
+    scanRequest.current++;
     setMessage('');
     setResult(null);
     setError(null);
   };
 
   const handleApplyPreset = (text: string) => {
+    if (isScanning) return;
     setMessage(text);
     setResult(null);
   };
@@ -109,15 +119,15 @@ export default function AnalyzePage() {
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-400">
               Interactive Diagnostic Console
             </span>
-            {health && (
+            {effectiveThreshold !== undefined && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
-                Threshold {(health.threshold * 100).toFixed(2)}%
+                {thresholdOverride === null ? 'Model threshold' : 'Effective threshold'} {(effectiveThreshold * 100).toFixed(2)}%
               </span>
             )}
           </div>
           <h2 className="text-xl font-bold text-slate-100">SMS Threat Intelligence Scanner</h2>
           <p className="text-xs text-slate-400">
-            Paste any inbound SMS message for multi-layer entity extraction, linguistic coercion detection, and calibrated probability analysis.
+            Paste any inbound SMS message for multi-layer entity extraction, linguistic coercion detection, and cost-sensitive risk scoring.
           </p>
         </div>
       </div>
@@ -145,6 +155,7 @@ export default function AnalyzePage() {
                 rows={6}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
+                disabled={isScanning}
                 placeholder="Paste SMS content here to evaluate..."
                 className="w-full rounded-xl bg-slate-950/80 border border-slate-800 p-4 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/40 transition-all font-sans leading-relaxed resize-y min-h-[140px]"
               />
@@ -157,7 +168,7 @@ export default function AnalyzePage() {
                 <button
                   type="button"
                   onClick={handleClear}
-                  disabled={!message && !result}
+                  disabled={isScanning || (!message && !result)}
                   className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-slate-400 hover:text-slate-200 text-xs font-medium border border-slate-800 flex items-center gap-1.5 transition-colors"
                 >
                   <Eraser className="w-3.5 h-3.5" />
@@ -200,6 +211,7 @@ export default function AnalyzePage() {
                 <button
                   key={preset.id}
                   onClick={() => handleApplyPreset(preset.text)}
+                  disabled={isScanning}
                   className="p-3 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800/80 hover:border-cyan-500/40 text-left transition-all group"
                 >
                   <div className="flex items-center justify-between mb-1">
@@ -242,7 +254,11 @@ export default function AnalyzePage() {
             <ApiErrorPanel error={error} onRetry={handleScan} />
           ) : result ? (
             /* Result Card */
-            <ScanResultCard result={result} onReset={handleClear} />
+            <ScanResultCard
+              result={result}
+              onReset={handleClear}
+              onFeedbackChange={(feedback) => setResult((item) => item ? { ...item, feedback } : item)}
+            />
           ) : (
             /* Empty State */
             <div className="rounded-2xl glass-panel border border-slate-800 p-8 flex flex-col items-center justify-center text-center h-full min-h-[380px]">

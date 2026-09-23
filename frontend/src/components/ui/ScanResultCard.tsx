@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -22,9 +22,10 @@ import { GaugeChart } from './GaugeChart';
 interface ScanResultCardProps {
   result: ScanResult;
   onReset?: () => void;
+  onFeedbackChange?: (feedback: FeedbackLabel | null) => void;
 }
 
-export function ScanResultCard({ result, onReset }: ScanResultCardProps) {
+export function ScanResultCard({ result, onReset, onFeedbackChange }: ScanResultCardProps) {
   const [copied, setCopied] = useState(false);
   const [driversExpanded, setDriversExpanded] = useState(true);
   const [whyExpanded, setWhyExpanded] = useState(false);
@@ -32,10 +33,19 @@ export function ScanResultCard({ result, onReset }: ScanResultCardProps) {
   const [featuresExpanded, setFeaturesExpanded] = useState(false);
 
   const isFraud = result.prediction === 'FRAUD';
+  const dangerousLink = result.detectedSignals.some(
+    (signal) => signal.category === 'link_risk' && signal.severity === 'high'
+  );
+  const displayVerdict = dangerousLink && !isFraud ? 'RISKY LINK' : result.prediction;
+  const displaySeverity = dangerousLink && !isFraud ? 'LINK WARNING' : `${result.riskLevel} SEVERITY`;
   const [feedback, setFeedback] = useState<FeedbackLabel | null>(result.feedback ?? null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const predictedLabel: FeedbackLabel = isFraud ? 'fraud' : 'legit';
+
+  useEffect(() => {
+    setFeedback(result.feedback ?? null);
+  }, [result.id, result.feedback]);
 
   const handleFeedback = async (label: FeedbackLabel) => {
     setFeedbackBusy(true);
@@ -44,9 +54,11 @@ export function ScanResultCard({ result, onReset }: ScanResultCardProps) {
       if (feedback === label) {
         await removeFeedback(result.id);
         setFeedback(null);
+        onFeedbackChange?.(null);
       } else {
         await sendFeedback(result.id, label);
         setFeedback(label);
+        onFeedbackChange?.(label);
       }
     } catch (err) {
       setFeedbackError(err instanceof ApiError ? err.message : String(err));
@@ -55,7 +67,7 @@ export function ScanResultCard({ result, onReset }: ScanResultCardProps) {
     }
   };
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     const text = `PHISHGUARD SCAN REPORT
 Verdict: ${result.prediction}
 Risk Level: ${result.riskLevel} (${result.riskScore}% risk)
@@ -66,9 +78,13 @@ Rule-based indicators:
 ${result.reasons.map((r) => ` - ${r}`).join('\n')}
 Recommended Action: ${result.recommendedAction.action}`;
 
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
   };
 
   return (
@@ -76,7 +92,7 @@ Recommended Action: ${result.recommendedAction.action}`;
       className={`rounded-2xl glass-panel p-6 border transition-all duration-300 relative overflow-hidden ${
         isFraud
           ? 'border-rose-500/50 shadow-[0_0_30px_rgba(239,68,68,0.15)]'
-          : result.riskLevel === 'MEDIUM'
+          : dangerousLink || result.riskLevel === 'MEDIUM'
           ? 'border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.15)]'
           : 'border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.15)]'
       }`}
@@ -86,7 +102,7 @@ Recommended Action: ${result.recommendedAction.action}`;
         className={`absolute top-0 left-0 right-0 h-1.5 ${
           isFraud
             ? 'bg-gradient-to-r from-rose-600 via-rose-500 to-amber-500'
-            : result.riskLevel === 'MEDIUM'
+            : dangerousLink || result.riskLevel === 'MEDIUM'
             ? 'bg-gradient-to-r from-amber-500 to-yellow-500'
             : 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500'
         }`}
@@ -100,14 +116,14 @@ Recommended Action: ${result.recommendedAction.action}`;
             className={`p-3.5 rounded-xl border flex items-center justify-center shrink-0 ${
               isFraud
                 ? 'bg-rose-500/10 border-rose-500/40 text-rose-400 shadow-[0_0_20px_rgba(239,68,68,0.2)]'
-                : result.riskLevel === 'MEDIUM'
+                : dangerousLink || result.riskLevel === 'MEDIUM'
                 ? 'bg-amber-500/10 border-amber-500/40 text-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.2)]'
                 : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
             }`}
           >
             {isFraud ? (
               <ShieldAlert className="w-8 h-8" />
-            ) : result.riskLevel === 'MEDIUM' ? (
+            ) : dangerousLink || result.riskLevel === 'MEDIUM' ? (
               <AlertTriangle className="w-8 h-8" />
             ) : (
               <ShieldCheck className="w-8 h-8" />
@@ -119,23 +135,23 @@ Recommended Action: ${result.recommendedAction.action}`;
                 className={`text-2xl font-black tracking-wider uppercase ${
                   isFraud
                     ? 'text-rose-400'
-                    : result.riskLevel === 'MEDIUM'
+                    : dangerousLink || result.riskLevel === 'MEDIUM'
                     ? 'text-amber-400'
                     : 'text-emerald-400'
                 }`}
               >
-                {result.prediction}
+                {displayVerdict}
               </span>
               <span
                 className={`text-xs font-mono font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
                   result.riskLevel === 'HIGH'
                     ? 'bg-rose-950 text-rose-300 border border-rose-700'
-                    : result.riskLevel === 'MEDIUM'
+                    : dangerousLink || result.riskLevel === 'MEDIUM'
                     ? 'bg-amber-950 text-amber-300 border border-amber-700'
                     : 'bg-emerald-950 text-emerald-300 border border-emerald-700'
                 }`}
               >
-                {result.riskLevel} SEVERITY
+                {displaySeverity}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1 flex flex-wrap items-center gap-2 font-mono">
@@ -155,11 +171,12 @@ Recommended Action: ${result.recommendedAction.action}`;
             score={result.riskScore}
             riskLevel={result.riskLevel}
             threshold={result.threshold * 100}
+            warning={dangerousLink}
             size="md"
           />
           <div className="border-l border-slate-800 pl-4 space-y-1.5 text-xs font-mono shrink-0">
             <div>
-              <span className="text-slate-400 block text-[10px] uppercase">Probability</span>
+              <span className="text-slate-400 block text-[10px] uppercase">Model Score</span>
               <span className="text-sm font-bold text-slate-100">
                 {(result.probability * 100).toFixed(2)}%
               </span>
@@ -261,7 +278,7 @@ Recommended Action: ${result.recommendedAction.action}`;
         {driversExpanded && (
           <div className="px-4 pb-4 pt-2 border-t border-slate-800/80 space-y-3">
             <p className="text-[11px] text-slate-400">
-              Each value is that feature&apos;s exact share of the linear model&apos;s decision score for this message.
+              Local probability effects for this message. Positive values raise the fraud score; negative values lower it.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {(
@@ -451,9 +468,9 @@ Recommended Action: ${result.recommendedAction.action}`;
                 </span>
               </div>
               <div className="p-2.5 rounded bg-slate-950 border border-slate-800">
-                <span className="text-slate-400 text-[10px] block">Urgency Tokens</span>
+                <span className="text-slate-400 text-[10px] block">Suspicious Keywords</span>
                 <span className="text-cyan-300 font-bold">
-                  {result.modelFeatures.urgencyTermsCount}
+                  {result.modelFeatures.suspiciousKeywordCount}
                 </span>
               </div>
             </div>

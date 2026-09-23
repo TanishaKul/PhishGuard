@@ -10,7 +10,7 @@ import re
 import secrets
 import threading
 import time
-from collections import defaultdict, deque
+from collections import deque
 from datetime import datetime, timedelta, timezone
 
 SESSION_COOKIE = "pg_session"
@@ -86,19 +86,30 @@ def validate_credentials(email: str, password: str) -> str | None:
 
 
 class LoginRateLimiter:
-    """Blocks a client+email pair after too many failed logins in a window."""
+    """Bounded, atomic per-key failure limiter for one process."""
 
-    def __init__(self, max_failures: int = 5, window_seconds: int = 900):
+    def __init__(self, max_failures: int = 5, window_seconds: int = 900,
+                 max_keys: int = 10_000):
         self.max_failures = max_failures
         self.window = window_seconds
-        self._failures: dict[str, deque] = defaultdict(deque)
+        self.max_keys = max_keys
+        self._failures: dict[str, deque] = {}
         self._lock = threading.Lock()
 
     def _prune(self, key: str, now: float) -> deque:
-        attempts = self._failures[key]
+        attempts = self._failures.get(key)
+        if attempts is None:
+            return deque()
         while attempts and now - attempts[0] > self.window:
             attempts.popleft()
+        if not attempts:
+            self._failures.pop(key, None)
+            attempts = deque()
         return attempts
+
+    def _prune_all(self, now: float) -> None:
+        for key in list(self._failures):
+            self._prune(key, now)
 
     def retry_after(self, key: str) -> int | None:
         """Seconds until the key may try again, or None if it is not blocked."""
@@ -109,9 +120,26 @@ class LoginRateLimiter:
                 return None
             return max(1, int(self.window - (now - attempts[0])))
 
-    def record_failure(self, key: str):
+    def reserve_failure(self, key: str) -> int | None:
+        """Atomically record one attempt and return a retry delay when blocked.
+
+        Reserving before password verification closes the check-then-record
+        race. A successful login resets the key, so legitimate users are not
+        penalized for earlier failures.
+        """
+        now = time.monotonic()
         with self._lock:
-            self._failures[key].append(time.monotonic())
+            self._prune_all(now)
+            attempts = self._prune(key, now)
+            if key not in self._failures and len(self._failures) >= self.max_keys:
+                # Bound memory under unique-key flooding. This key is allowed
+                # once; the oldest idle key is evicted first.
+                oldest = min(self._failures, key=lambda k: self._failures[k][0])
+                self._failures.pop(oldest, None)
+            self._failures.setdefault(key, deque()).append(now)
+            if len(attempts) > self.max_failures:
+                return max(1, int(self.window - (now - attempts[0])))
+            return None
 
     def reset(self, key: str):
         with self._lock:

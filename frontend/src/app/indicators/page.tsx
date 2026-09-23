@@ -57,6 +57,16 @@ export default function IndicatorsPage() {
     displayName: CATEGORY_COPY[category]?.displayName || category,
     description: CATEGORY_COPY[category]?.description || '',
   }));
+  const filteredCategories = categories
+    .map((item) => ({
+      ...item,
+      keywords: item.keywords.filter((keyword) => keyword.toLowerCase().includes(search.toLowerCase())),
+    }))
+    .filter((item) =>
+      item.keywords.length > 0 ||
+      item.category.toLowerCase().includes(search.toLowerCase()) ||
+      item.displayName.toLowerCase().includes(search.toLowerCase())
+    );
   const maxAbsWeight = Math.max(...indicators.map((i) => Math.abs(i.weight)), 1e-9);
 
   const fraudIndicators = indicators.filter((i) => i.type === 'fraud');
@@ -71,10 +81,14 @@ export default function IndicatorsPage() {
     return matchesSearch && matchesTab;
   });
 
-  const handleCopy = (term: string) => {
-    navigator.clipboard.writeText(term);
-    setCopiedTerm(term);
-    setTimeout(() => setCopiedTerm(null), 1500);
+  const handleCopy = async (term: string) => {
+    try {
+      await navigator.clipboard.writeText(term);
+      setCopiedTerm(term);
+      setTimeout(() => setCopiedTerm(null), 1500);
+    } catch {
+      setCopiedTerm(null);
+    }
   };
 
   return (
@@ -87,12 +101,14 @@ export default function IndicatorsPage() {
               Model Feature Explainability
             </span>
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
-              {report.metrics.modelName} Weights
+              {report.metrics.modelName} {report.indicatorMethod === 'average_local_probability_effect' ? 'Local Effects' : 'Legacy Coefficients'}
             </span>
           </div>
           <h2 className="text-xl font-bold text-slate-100">Top Fraud & Benign Indicators</h2>
           <p className="text-xs text-slate-400">
-            Word-feature weights of the trained model, with how often each term appears in the training data, plus the rule-based keyword dictionary.
+            {report.indicatorMethod === 'average_local_probability_effect'
+              ? 'Average local probability effects across training messages, with term frequencies and the rule dictionary.'
+              : 'Legacy average fold coefficients from the saved training report. Retrain to regenerate local-effect indicators.'}
           </p>
         </div>
       </div>
@@ -139,7 +155,7 @@ export default function IndicatorsPage() {
       {tab === 'DICTIONARY' ? (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {categories.map((cat) => (
+            {filteredCategories.map((cat) => (
               <div
                 key={cat.category}
                 className="p-5 rounded-2xl glass-panel border border-slate-800 flex flex-col justify-between"

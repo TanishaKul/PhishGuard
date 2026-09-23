@@ -79,6 +79,9 @@ export default function ModelPerformancePage() {
   const fraudTotal = tp + fn;
   const costFn = metrics.costFnWeight;
   const costFp = metrics.costFpWeight;
+  const testFraudRate = metrics.fraudRateTest;
+  const targetPrevalence = metrics.assumedPrevalence ?? testFraudRate;
+  const usesPrevalenceCost = report.selectionMethod === 'target_prevalence_cv_cost';
 
   const compareChartData = comparisons.map((c) => ({
     name: c.name.split(' ')[0],
@@ -206,7 +209,7 @@ export default function ModelPerformancePage() {
                 {metrics.expectedCost.toFixed(1)}
               </div>
               <span className="text-[10px] text-slate-400 font-mono">
-                {costFn}×FN + {costFp}×FP
+                {usesPrevalenceCost ? 'Target-prevalence weighted' : 'Raw held-out counts'}
               </span>
             </div>
           </div>
@@ -305,7 +308,10 @@ export default function ModelPerformancePage() {
                   <div className="pt-2 border-t border-slate-800 flex justify-between font-bold">
                     <span className="text-slate-200">Total Expected Cost:</span>
                     <span className="text-cyan-400">
-                      ({costFn} × {fn}) + ({costFp} × {fp}) = {metrics.expectedCost}
+                      {usesPrevalenceCost
+                        ? `(${costFn} × ${fn} × ${targetPrevalence}/${testFraudRate}) + (${costFp} × ${fp} × ${1 - targetPrevalence}/${1 - testFraudRate})`
+                        : `(${costFn} × ${fn}) + (${costFp} × ${fp})`}
+                      {' = '}{metrics.expectedCost}
                     </span>
                   </div>
                 </div>
@@ -328,7 +334,9 @@ export default function ModelPerformancePage() {
             <div className="p-5 border-b border-slate-800">
               <h3 className="text-sm font-bold text-slate-100">Cross-Validated Classifier Benchmark</h3>
               <p className="text-xs text-slate-400">
-                Stratified 5-fold cross-validation on the training split selects the model; test columns are reported only.
+                {report.selectionMethod === 'target_prevalence_cv_cost'
+                  ? 'Stratified 5-fold cross-validation selects the lowest target-prevalence cost; test columns are reported only.'
+                  : 'Legacy report: stratified 5-fold CV selected by PR-AUC; test columns are reporting only.'}
               </p>
             </div>
 
@@ -338,6 +346,7 @@ export default function ModelPerformancePage() {
                   <tr>
                     <th className="py-3 px-4">Model Architecture</th>
                     <th className="py-3 px-4">CV PR-AUC</th>
+                    <th className="py-3 px-4">CV Expected Cost</th>
                     <th className="py-3 px-4">Threshold</th>
                     <th className="py-3 px-4">Test PR-AUC</th>
                     <th className="py-3 px-4">Test ROC-AUC</th>
@@ -368,6 +377,9 @@ export default function ModelPerformancePage() {
                       <td className="py-3.5 px-4 text-cyan-400 font-bold">
                         {(c.cvPrAuc * 100).toFixed(2)}%
                       </td>
+                      <td className="py-3.5 px-4 text-amber-400">
+                        {c.cvExpectedCost === undefined ? '—' : c.cvExpectedCost.toFixed(1)}
+                      </td>
                       <td className="py-3.5 px-4 text-slate-300">{c.threshold.toFixed(4)}</td>
                       <td className="py-3.5 px-4 text-emerald-400 font-bold">
                         {(c.testPrAuc * 100).toFixed(2)}%
@@ -386,7 +398,9 @@ export default function ModelPerformancePage() {
                       </td>
                       <td className="py-3.5 px-4 text-right">
                         {c.isBest ? (
-                          <span className="text-emerald-400 font-bold">Best CV PR-AUC</span>
+                          <span className="text-emerald-400 font-bold">
+                            {report.selectionMethod === 'target_prevalence_cv_cost' ? 'Lowest CV Cost' : 'Best CV PR-AUC'}
+                          </span>
                         ) : (
                           <span className="text-slate-500">Candidate</span>
                         )}
@@ -408,7 +422,7 @@ export default function ModelPerformancePage() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={compareChartData}>
                   <XAxis dataKey="fullName" stroke="#64748b" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#64748b" fontSize={11} domain={[80, 100]} unit="%" />
+                  <YAxis stroke="#64748b" fontSize={11} domain={[0, 100]} unit="%" />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: '#090d16',

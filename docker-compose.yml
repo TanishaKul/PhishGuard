@@ -11,7 +11,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U phishguard"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U phishguard -d phishguard"]
       interval: 5s
       retries: 10
 
@@ -23,7 +23,7 @@ services:
     volumes:
       - ${MODEL_FILE:-./fraud_model.joblib}:/models/fraud_model.joblib:ro
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -34,9 +34,10 @@ services:
       args:
         NEXT_PUBLIC_API_URL: http://localhost:${API_PORT:-8000}
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:

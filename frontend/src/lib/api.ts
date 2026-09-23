@@ -19,6 +19,8 @@ const THRESHOLD_KEY = 'phishguard_threshold';
 const HISTORY_LIMIT = 500;
 
 export const SIGNED_OUT_EVENT = 'phishguard:signed-out';
+export const API_URL_CHANGED_EVENT = 'phishguard:api-url-changed';
+export const THRESHOLD_CHANGED_EVENT = 'phishguard:threshold-changed';
 
 const START_API_HINT = 'Start it with: python api_server.py --port 8000';
 
@@ -55,8 +57,14 @@ export function getApiUrl(): string {
 }
 
 export function setApiUrl(url: string | null) {
-  writeStorage(API_URL_KEY, url);
+  const previous = readStorage(API_URL_KEY);
+  const normalized = url?.replace(/\/+$/, '') || null;
+  if (previous === normalized) return;
+  writeStorage(API_URL_KEY, normalized);
   reportPromise = null;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(API_URL_CHANGED_EVENT));
+  }
 }
 
 // A user-chosen threshold from Settings; null means use the model's own.
@@ -68,16 +76,19 @@ export function getThresholdOverride(): number | null {
 
 export function setThresholdOverride(threshold: number | null) {
   writeStorage(THRESHOLD_KEY, threshold === null ? null : String(threshold));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(THRESHOLD_CHANGED_EVENT));
+  }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const url = `${getApiUrl()}${path}`;
+async function request<T>(path: string, init?: RequestInit, baseUrl = getApiUrl()): Promise<T> {
+  const url = `${baseUrl}${path}`;
   let response: Response;
   try {
     // Send the session cookie; the API only accepts credentials from allowed origins.
     response = await fetch(url, { ...init, credentials: 'include' });
   } catch {
-    const where = getApiUrl() || `${window.location.origin} (proxied)`;
+    const where = baseUrl || `${window.location.origin} (proxied)`;
     throw new ApiError(`Cannot reach the fraud-detection API at ${where}.`, 0, START_API_HINT);
   }
 
@@ -110,15 +121,20 @@ export function getHealth(): Promise<ApiHealth> {
   return request<ApiHealth>('/api/health');
 }
 
+export function testApiHealth(baseUrl: string): Promise<ApiHealth> {
+  return request<ApiHealth>('/api/health', undefined, baseUrl.replace(/\/+$/, ''));
+}
+
 let reportPromise: Promise<ModelReport> | null = null;
 
 // The report only changes when the model is retrained, so fetch it once per page load.
 export function getModelReport(): Promise<ModelReport> {
   if (!reportPromise) {
-    reportPromise = request<ModelReport>('/api/metrics').catch((err) => {
-      reportPromise = null;
+    const pending = request<ModelReport>('/api/metrics').catch((err) => {
+      if (reportPromise === pending) reportPromise = null;
       throw err;
     });
+    reportPromise = pending;
   }
   return reportPromise;
 }
@@ -133,7 +149,7 @@ function postJson<T>(path: string, body?: unknown): Promise<T> {
 
 export interface SessionUser {
   email: string;
-  isAdmin?: boolean;
+  isAdmin: boolean;
 }
 
 export interface AdminStats {
@@ -162,7 +178,17 @@ export function getAdminStats(): Promise<AdminStats> {
 }
 
 export async function getAdminFeedback(): Promise<AdminFeedbackItem[]> {
-  return (await request<{ items: AdminFeedbackItem[] }>('/api/admin/feedback?limit=200')).items;
+  const items: AdminFeedbackItem[] = [];
+  let offset = 0;
+  while (true) {
+    const page = await request<{ items: AdminFeedbackItem[] }>(
+      `/api/admin/feedback?limit=500&offset=${offset}`
+    );
+    items.push(...page.items);
+    offset += page.items.length;
+    if (page.items.length < 500) break;
+  }
+  return items;
 }
 
 export function register(email: string, password: string): Promise<SessionUser> {
@@ -203,10 +229,19 @@ export function scanMessage(message: string): Promise<ScanResult> {
 
 // The signed-in user's scans, newest first, from the API's database.
 export async function getScanHistory(): Promise<ScanHistoryItem[]> {
-  const page = await request<{ total: number; items: ScanHistoryItem[] }>(
-    `/api/history?limit=${HISTORY_LIMIT}`
-  );
-  return page.items;
+  const items: ScanHistoryItem[] = [];
+  let offset = 0;
+  let total = 0;
+  do {
+    const page = await request<{ total: number; items: ScanHistoryItem[] }>(
+      `/api/history?limit=${HISTORY_LIMIT}&offset=${offset}`
+    );
+    total = page.total;
+    items.push(...page.items);
+    offset += page.items.length;
+    if (page.items.length === 0) break;
+  } while (offset < total);
+  return items;
 }
 
 // Scan ids look like "scan-12"; the API routes use the number.
@@ -243,7 +278,9 @@ const CATEGORY_LABELS: Record<string, { name: string; color: string }> = {
 };
 
 function dayKey(timestamp: string): string {
-  return timestamp.slice(0, 10);
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp.slice(0, 10);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 // Aggregates computed from the user's scan history — nothing here is sample data.
@@ -300,7 +337,10 @@ export function getAnalyticsData(history: ScanHistoryItem[]): AnalyticsData {
   });
 
   const hourlyActivity = Array.from({ length: 8 }, (_, i) => {
-    const inSlot = history.filter((h) => Math.floor(Number(h.timestamp.slice(11, 13)) / 3) === i);
+    const inSlot = history.filter((h) => {
+      const date = new Date(h.timestamp);
+      return !Number.isNaN(date.getTime()) && Math.floor(date.getHours() / 3) === i;
+    });
     return {
       hour: `${String(i * 3).padStart(2, '0')}:00`,
       count: inSlot.length,

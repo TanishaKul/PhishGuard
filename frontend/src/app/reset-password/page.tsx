@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AuthCard, buttonClass, inputClass } from '@/components/auth/AuthCard';
@@ -12,11 +12,27 @@ const MIN_PASSWORD_LENGTH = 8;
 
 function ResetForm() {
   const router = useRouter();
-  const token = useSearchParams().get('token') || '';
+  const legacyToken = useSearchParams().get('token') || '';
+  const [fragmentToken, setFragmentToken] = useState('');
+  const token = fragmentToken || legacyToken;
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
+
+  useEffect(() => {
+    const readFragment = () => {
+      const value = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      setFragmentToken(value.get('token') || '');
+    };
+    readFragment();
+    window.addEventListener('hashchange', readFragment);
+    return () => window.removeEventListener('hashchange', readFragment);
+  }, []);
+
+  useEffect(() => {
+    if (token) window.history.replaceState(null, '', window.location.pathname);
+  }, [token]);
 
   if (!token) {
     return (

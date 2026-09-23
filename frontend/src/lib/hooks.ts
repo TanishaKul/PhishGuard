@@ -1,7 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { ApiError, SIGNED_OUT_EVENT, SessionUser, getCurrentUser, getHealth, getModelReport } from './api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  API_URL_CHANGED_EVENT,
+  THRESHOLD_CHANGED_EVENT,
+  ApiError,
+  SIGNED_OUT_EVENT,
+  SessionUser,
+  getCurrentUser,
+  getHealth,
+  getModelReport,
+} from './api';
 import { ApiHealth, ModelReport } from './types';
 
 function toApiError(err: unknown): ApiError {
@@ -11,15 +20,30 @@ function toApiError(err: unknown): ApiError {
 export function useModelReport() {
   const [report, setReport] = useState<ModelReport | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const generation = useRef(0);
 
   const load = useCallback(() => {
+    const current = ++generation.current;
     setError(null);
     getModelReport()
-      .then(setReport)
-      .catch((err) => setError(toApiError(err)));
+      .then((value) => {
+        if (generation.current === current) setReport(value);
+      })
+      .catch((err) => {
+        if (generation.current === current) setError(toApiError(err));
+      });
   }, []);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    load();
+    const onApiUrlChanged = () => {
+      setReport(null);
+      load();
+    };
+    window.addEventListener(API_URL_CHANGED_EVENT, onApiUrlChanged);
+    return () => window.removeEventListener(API_URL_CHANGED_EVENT, onApiUrlChanged);
+  }, [load]);
+
   return { report, error, retry: load };
 }
 
@@ -31,23 +55,39 @@ export function useApiHealth() {
 
   useEffect(() => {
     let cancelled = false;
-    const check = () =>
+    let inFlight = false;
+    let generation = 0;
+    const check = () => {
+      if (inFlight) return;
+      inFlight = true;
+      const current = ++generation;
+      setHealth(null);
       getHealth()
         .then((h) => {
-          if (cancelled) return;
-          setHealth(h);
-          setError(null);
+          if (!cancelled && generation === current) setHealth(h);
+          if (!cancelled && generation === current) setError(null);
         })
         .catch((err) => {
-          if (cancelled) return;
-          setHealth(null);
-          setError(toApiError(err));
+          if (!cancelled && generation === current) setHealth(null);
+          if (!cancelled && generation === current) setError(toApiError(err));
+        })
+        .finally(() => {
+          inFlight = false;
         });
+    };
+    const onApiUrlChanged = () => {
+      setError(null);
+      generation++;
+      inFlight = false;
+      check();
+    };
     check();
     const interval = setInterval(check, HEALTH_POLL_MS);
+    window.addEventListener(API_URL_CHANGED_EVENT, onApiUrlChanged);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      window.removeEventListener(API_URL_CHANGED_EVENT, onApiUrlChanged);
     };
   }, []);
 
@@ -62,7 +102,11 @@ type SessionState =
 
 // Shared across pages so navigating does not re-check the session each time.
 let sessionCache: SessionState = { status: 'loading' };
+let sessionGeneration = 0;
 const listeners = new Set<(s: SessionState) => void>();
+const sessionChannel = typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined'
+  ? new BroadcastChannel('phishguard-session')
+  : null;
 
 function setSession(state: SessionState) {
   sessionCache = state;
@@ -70,21 +114,59 @@ function setSession(state: SessionState) {
 }
 
 export function refreshSession() {
+  const current = ++sessionGeneration;
   return getCurrentUser()
-    .then((user) => setSession(user ? { status: 'signed-in', user } : { status: 'signed-out' }))
-    .catch((err) => setSession({ status: 'error', error: toApiError(err) }));
+    .then((user) => {
+      if (current === sessionGeneration) {
+        setSession(user ? { status: 'signed-in', user } : { status: 'signed-out' });
+      }
+    })
+    .catch((err) => {
+      if (current === sessionGeneration) setSession({ status: 'error', error: toApiError(err) });
+    });
 }
 
 export function markSignedIn(user: SessionUser) {
+  sessionGeneration++;
   setSession({ status: 'signed-in', user });
+  sessionChannel?.postMessage({ type: 'signed-in' });
 }
 
 export function markSignedOut() {
+  sessionGeneration++;
   setSession({ status: 'signed-out' });
+  sessionChannel?.postMessage({ type: 'signed-out' });
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener(SIGNED_OUT_EVENT, () => setSession({ status: 'signed-out' }));
+  sessionChannel?.addEventListener('message', (event) => {
+    if (event.data?.type === 'signed-out') {
+      sessionGeneration++;
+      setSession({ status: 'signed-out' });
+    } else if (event.data?.type === 'signed-in') {
+      sessionGeneration++;
+      setSession({ status: 'loading' });
+      refreshSession();
+    }
+  });
+  window.addEventListener(SIGNED_OUT_EVENT, () => {
+    sessionGeneration++;
+    setSession({ status: 'signed-out' });
+    sessionChannel?.postMessage({ type: 'signed-out' });
+  });
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'phishguard_api_url' || event.key === null) {
+      window.dispatchEvent(new Event(API_URL_CHANGED_EVENT));
+    }
+    if (event.key === 'phishguard_threshold' || event.key === null) {
+      window.dispatchEvent(new Event(THRESHOLD_CHANGED_EVENT));
+    }
+    if (event.key === 'pg_session' || event.key === null) {
+      sessionGeneration++;
+      setSession({ status: 'loading' });
+      refreshSession();
+    }
+  });
 }
 
 export function useSession() {

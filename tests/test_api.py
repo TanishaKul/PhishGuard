@@ -10,7 +10,7 @@ from sklearn.pipeline import Pipeline
 
 import mailer
 import spamham_project_v3 as sp
-from api_server import MAX_BODY_BYTES, MAX_MESSAGE_CHARS, create_app
+from api_server import MAX_BODY_BYTES, MAX_MESSAGE_CHARS, create_app, public_model_report
 from db import Base, Database
 
 FRAUD = [
@@ -206,6 +206,8 @@ def test_cors_only_allows_localhost(client):
     assert ok.headers.get("access-control-allow-credentials") == "true"
     evil = client.get("/api/health", headers={"Origin": "https://evil.example"})
     assert "access-control-allow-origin" not in evil.headers
+    mutation = client.post("/api/auth/logout", headers={"Origin": "https://evil.example"})
+    assert mutation.status_code == 403
 
 
 def test_unknown_route_is_404(client):
@@ -282,7 +284,7 @@ def test_password_reset_flow(reset_client, outbox):
 
     r = c.post("/api/auth/forgot", json={"email": "USER@example.com"})
     assert r.status_code == 202 and "If an account exists" in r.json()["message"]
-    assert outbox.sent[-1][0] == "user@example.com" and "http://app.test/reset-password?token=" in outbox.sent[-1][2]
+    assert outbox.sent[-1][0] == "user@example.com" and "http://app.test/reset-password#token=" in outbox.sent[-1][2]
 
     r = c.post("/api/auth/reset", json={"token": outbox.token(), "password": "a brand new password"})
     assert r.status_code == 200 and c.get("/api/auth/me").status_code == 200
@@ -323,7 +325,7 @@ def test_forgot_is_rate_limited(reset_client):
     assert reset_client.post("/api/auth/forgot", json={"email": "x@example.com"}).status_code == 429
 
 
-def test_forgot_reports_mail_failure(model_path, database):
+def test_forgot_does_not_reveal_mail_failure(model_path, database):
     class Broken:
         def send(self, *a):
             raise mailer.MailError("smtp down")
@@ -332,7 +334,9 @@ def test_forgot_reports_mail_failure(model_path, database):
     with TestClient(app) as c:
         register(c)
         r = c.post("/api/auth/forgot", json={"email": "user@example.com"})
-        assert r.status_code == 503 and "couldn't send" in r.json()["error"]
+        unknown = c.post("/api/auth/forgot", json={"email": "nobody@example.com"})
+        assert r.status_code == unknown.status_code == 202
+        assert r.json() == unknown.json()
 
 
 def make_admin(database, email="user@example.com"):
@@ -403,3 +407,78 @@ def test_scan_includes_link_risk_signals(client):
     result = client.post("/api/scan", json={"message": "HDFC: KYC pending, verify at hdfc-kyc.in"}).json()
     link = [s for s in result["detectedSignals"] if s["category"] == "link_risk"]
     assert link and link[0]["name"] == "Link Imitates a Known Brand" and link[0]["evidence"] == "hdfc-kyc.in"
+
+
+def test_sqlite_feedback_cascade_prevents_cross_user_leak(client):
+    register(client, email="a@example.com")
+    sid = scan_id(client, "private first-user message")
+    client.post(f"/api/scans/{sid}/feedback", json={"correctLabel": "legit", "note": "private note"})
+    assert client.delete(f"/api/history/{sid}").status_code == 200
+
+    client.post("/api/auth/logout")
+    register(client, email="b@example.com")
+    second = client.post("/api/scan", json={"message": "unrelated second-user message"}).json()
+    assert second["id"] == "scan-1"  # SQLite reused the deleted primary key.
+    item = client.get("/api/history").json()["items"][0]
+    assert item["feedback"] is None and item["result"]["feedback"] is None
+
+
+def test_sqlite_memory_database_is_shared_with_requests(model_path):
+    app = create_app(model_path=model_path, database=Database("sqlite:///:memory:"),
+                     extra_origins=[], cookie_secure=False)
+    with TestClient(app) as c:
+        assert register(c).status_code == 201
+        assert c.get("/api/auth/me").status_code == 200
+
+
+def test_malformed_model_reports_unavailable(tmp_path, database):
+    path = tmp_path / "malformed.joblib"
+    joblib.dump({"threshold": 0.5}, path)
+    with TestClient(create_app(model_path=path, database=database, extra_origins=[])) as c:
+        r = c.get("/api/health")
+        assert r.status_code == 503 and "pipeline" in r.json()["error"]
+
+
+def test_model_url_requires_checksum(tmp_path, database, monkeypatch):
+    monkeypatch.setenv("MODEL_URL", "https://models.example/fraud.joblib")
+    monkeypatch.delenv("MODEL_SHA256", raising=False)
+    with TestClient(create_app(model_path=tmp_path / "model.joblib", database=database,
+                               extra_origins=[])) as c:
+        r = c.get("/api/health")
+        assert r.status_code == 503 and "MODEL_SHA256" in r.json()["error"]
+
+
+def test_new_reset_token_revokes_old_tokens(reset_client, outbox):
+    register(reset_client)
+    reset_client.post("/api/auth/forgot", json={"email": "user@example.com"})
+    old = outbox.token()
+    reset_client.post("/api/auth/forgot", json={"email": "user@example.com"})
+    new = outbox.token()
+    assert reset_client.post("/api/auth/reset", json={"token": old, "password": "old token password"}).status_code == 400
+    assert reset_client.post("/api/auth/reset", json={"token": new, "password": "new token password"}).status_code == 200
+
+
+def test_auth_responses_include_admin_role(client, database):
+    register(client)
+    make_admin(database)
+    client.post("/api/auth/logout")
+    r = client.post("/api/auth/login", json={"email": "user@example.com", "password": PASSWORD})
+    assert r.status_code == 200 and r.json()["isAdmin"] is True
+
+
+def test_timestamps_include_timezone(client):
+    register(client)
+    result = client.post("/api/scan", json={"message": LEGIT[0]}).json()
+    assert re.search(r"(Z|[+-]\d\d:\d\d)$", result["timestamp"])
+
+
+def test_combined_model_report_redacts_private_samples_and_terms():
+    report = {
+        "dataset": "combined.csv",
+        "errorAnalysis": {"falseNegatives": [{"message": "Alice private SMS"}], "falsePositives": []},
+        "topIndicators": [{"term": "alice"}],
+    }
+    safe = public_model_report(report)
+    assert safe["errorAnalysis"]["falseNegatives"][0]["message"].startswith("[redacted")
+    assert safe["topIndicators"] == []
+    assert report["errorAnalysis"]["falseNegatives"][0]["message"] == "Alice private SMS"

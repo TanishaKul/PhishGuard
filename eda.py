@@ -1,45 +1,51 @@
-def run_eda():
-   import pandas as pd
-   import seaborn as sns
-   import matplotlib.pyplot as plt
-   from wordcloud import WordCloud
+# -*- coding: utf-8 -*-
+"""Generate the EDA plots for the same dataset used by model training."""
 
-# Dataset load karo (isi tarah jaisa pehle kiya tha)
-   df = pd.read_csv('spam.csv', encoding='latin-1')
-   df = df[['v1', 'v2']]
-   df.columns = ['label', 'message']
-   df = df.drop_duplicates()
+from pathlib import Path
 
-# 1. Spam vs Ham Count
-   sns.countplot(x='label',data=df)
-   plt.title('Spam vs Ham Count')
-   plt.savefig('spam_ham_count.png')
-   plt.show()
 
-# 2. Message Length
-   df['length'] = df['message'].apply(len)
-   df[df['label']=='ham']['length'].plot(kind='hist', bins=50, alpha=0.5, label='ham', color='blue')
-   df[df['label']=='spam']['length'].plot(kind='hist', bins=50, alpha=0.5, label='spam', color='red')
-   plt.legend()
-   plt.title('Message Length: Spam vs Ham')
-   plt.savefig('message_length.png')
-   plt.show()
+def run_eda(data_path: Path | str = "spam.csv", output_dir: Path | str = "."):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from wordcloud import WordCloud
 
-# 3. WordCloud
-   spam_words = ' '.join(df[df['label']=='spam']['message'])
-   spam_wc = WordCloud(width=600, height=400, background_color='white').generate(spam_words)
-   plt.figure(figsize=(8,6))
-   plt.imshow(spam_wc)
-   plt.axis('off')
-   plt.title('Most Common Words in SPAM')
-   plt.savefig('spam_wordcloud.png')
-   plt.show()
+    from spamham_project_v3 import load_data
 
-   ham_words = ' '.join(df[df['label']=='ham']['message'])
-   ham_wc = WordCloud(width=600, height=400, background_color='white').generate(ham_words)
-   plt.figure(figsize=(8,6))
-   plt.imshow(ham_wc)
-   plt.axis('off')
-   plt.title('Most Common Words in HAM')
-   plt.savefig('ham_wordcloud.png')
-   plt.show()
+    data_path = Path(data_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    df = load_data(data_path)[["label", "message"]]
+
+    sns.countplot(x="label", data=df)
+    plt.title("Spam vs Ham Count")
+    plt.savefig(output_dir / "spam_ham_count.png")
+    plt.close()
+
+    df["length"] = df["message"].str.len()
+    for label, color in (("ham", "blue"), ("spam", "red")):
+        subset = df.loc[df["label"] == label, "length"]
+        if not subset.empty:
+            subset.plot(kind="hist", bins=50, alpha=0.5, label=label, color=color)
+    plt.legend()
+    plt.title("Message Length: Spam vs Ham")
+    plt.savefig(output_dir / "message_length.png")
+    plt.close()
+
+    for label, filename, color in (
+        ("spam", "spam_wordcloud.png", "white"),
+        ("ham", "ham_wordcloud.png", "black"),
+    ):
+        text = " ".join(df.loc[df["label"] == label, "message"])
+        if not text:
+            continue
+        cloud = WordCloud(width=600, height=400, background_color=color).generate(text)
+        plt.figure(figsize=(8, 6))
+        plt.imshow(cloud)
+        plt.axis("off")
+        plt.title(f"Most Common Words in {label.upper()}")
+        plt.savefig(output_dir / filename)
+        plt.close()
+
+
+if __name__ == "__main__":
+    run_eda()

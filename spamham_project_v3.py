@@ -20,9 +20,11 @@ import sys
 from pathlib import Path
 
 import joblib
+from link_risk import LINK_RE
 import numpy as np
 import pandas as pd
 from scipy.sparse import csr_matrix
+from scipy.special import expit
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -81,7 +83,15 @@ def load_data(path: Path) -> pd.DataFrame:
     if {"v1", "v2"}.issubset(df.columns):
         # The Kaggle export mis-quotes ~50 messages, spilling their tail after a
         # comma into unnamed columns. Stitch it back instead of dropping it.
-        spill = [c for c in df.columns if str(c).startswith("Unnamed")]
+        # A normal DataFrame export may also contain an integer "Unnamed: 0"
+        # index; that column is metadata, not part of the SMS text.
+        unnamed = [c for c in df.columns if str(c).startswith("Unnamed")]
+        index_columns = [
+            c for c in unnamed
+            if str(c) == "Unnamed: 0"
+            and pd.to_numeric(df[c], errors="coerce").notna().all()
+        ]
+        spill = [c for c in unnamed if c not in index_columns]
         if spill and df[spill].notna().any().any():
             tails = df[spill].apply(lambda r: "".join("," + str(v) for v in r if pd.notna(v)), axis=1)
             print(f"Repaired {int((tails != '').sum())} messages split across extra columns.")
@@ -260,7 +270,10 @@ def template_groups(messages: pd.Series) -> pd.Series:
     Splitting on this keeps every copy of a template on the same side, so the
     test split measures new messages rather than re-sent ones.
     """
-    return messages.map(normalize_text).str[:40]
+    normalized = messages.map(lambda message: normalize_text(
+        LINK_RE.sub(" <url> ", str(message).lower())
+    ))
+    return normalized
 
 
 def build_features() -> FeatureUnion:
@@ -330,7 +343,24 @@ def optimal_threshold(y_true, y_score, prevalence=None) -> float:
     return float(best_t)
 
 
-def evaluate(name, model, X_test, y_test, threshold):
+def prevalence_adjusted_cost(y_true, y_score, threshold, prevalence=None):
+    """Expected misclassification cost after reweighting to target prevalence."""
+    y_true = np.asarray(y_true)
+    predictions = np.asarray(y_score) >= threshold
+    positives = y_true == 1
+    negatives = ~positives
+    false_negative = int(np.sum(positives & ~predictions))
+    false_positive = int(np.sum(negatives & predictions))
+    positive_rate = positives.mean() if len(y_true) else 0
+    if prevalence is None or positive_rate <= 0 or positive_rate >= 1:
+        return COST_FALSE_NEGATIVE * false_negative + COST_FALSE_POSITIVE * false_positive
+    return (
+        COST_FALSE_NEGATIVE * false_negative * prevalence / positive_rate
+        + COST_FALSE_POSITIVE * false_positive * (1 - prevalence) / (1 - positive_rate)
+    )
+
+
+def evaluate(name, model, X_test, y_test, threshold, prevalence=None):
     """Score the held-out split at a threshold fixed beforehand."""
     scores = model.predict_proba(X_test)[:, 1]
     preds = (scores >= threshold).astype(int)
@@ -339,7 +369,8 @@ def evaluate(name, model, X_test, y_test, threshold):
     print(classification_report(y_test, preds, target_names=["legit", "fraud"], digits=4))
 
     tn, fp, fn, tp = (int(v) for v in confusion_matrix(y_test, preds).ravel())
-    expected_cost = COST_FALSE_NEGATIVE * fn + COST_FALSE_POSITIVE * fp
+    raw_expected_cost = COST_FALSE_NEGATIVE * fn + COST_FALSE_POSITIVE * fp
+    expected_cost = prevalence_adjusted_cost(y_test, scores, threshold, prevalence)
     metrics = {
         "prAuc": float(average_precision_score(y_test, scores)),
         "rocAuc": float(roc_auc_score(y_test, scores)),
@@ -348,12 +379,14 @@ def evaluate(name, model, X_test, y_test, threshold):
         "f1": float(f1_score(y_test, preds)),
         "accuracy": float(accuracy_score(y_test, preds)),
         "expectedCost": float(expected_cost),
+        "rawExpectedCost": float(raw_expected_cost),
         "confusionMatrix": {"tn": tn, "fp": fp, "fn": fn, "tp": tp, "total": tn + fp + fn + tp},
     }
     print(f"Confusion: TN={tn}  FP={fp}  FN={fn}  TP={tp}")
     print(f"ROC-AUC : {metrics['rocAuc']:.4f}")
     print(f"PR-AUC  : {metrics['prAuc']:.4f}")
-    print(f"Expected cost: {expected_cost:.1f}")
+    print(f"Expected cost at target prevalence: {expected_cost:.1f} "
+          f"(raw-count cost: {raw_expected_cost:.1f})")
     return metrics
 
 
@@ -464,6 +497,35 @@ def linear_coefficients(clf):
     return None
 
 
+def local_effect_coefficients(clf, X):
+    """Per-feature local probability effects for the message matrix ``X``.
+
+    A calibrated ensemble averages sigmoid-transformed fold decisions. Its
+    exact local derivative therefore weights each fold coefficient by that
+    fold's sigmoid slope at the current message. Averaging raw coefficients
+    can even reverse a feature's displayed direction.
+    """
+    if not hasattr(clf, "calibrated_classifiers_"):
+        coefficients = linear_coefficients(clf)
+        return None if coefficients is None else np.asarray(coefficients).reshape(1, -1)
+
+    effects = None
+    calibrated = clf.calibrated_classifiers_
+    for classifier in calibrated:
+        coefficients = linear_coefficients(classifier.estimator)
+        if coefficients is None:
+            return None
+        decision = np.asarray(classifier.estimator.decision_function(X))
+        if decision.ndim > 1:
+            decision = decision[:, 1]
+        calibrator = classifier.calibrators[0]
+        probability = expit(calibrator.a_ * decision + calibrator.b_)
+        slope = probability * (1.0 - probability)
+        contribution = slope[:, None] * coefficients[None, :]
+        effects = contribution if effects is None else effects + contribution
+    return effects / len(calibrated)
+
+
 def feature_index(pipeline):
     """(names, kinds) for every column the FeatureUnion produces, in order."""
     features = pipeline.named_steps["features"]
@@ -476,14 +538,14 @@ def feature_index(pipeline):
 
 
 def term_contributions(pipeline, message, k=8, index=None):
-    """Features that pushed this message's score toward fraud and toward legitimate."""
-    coefs = linear_coefficients(pipeline.named_steps["clf"])
-    if coefs is None:
-        return {"fraud": [], "legitimate": []}
-
+    """Features that locally raised or lowered this message's fraud score."""
     names, kinds = index if index is not None else feature_index(pipeline)
     x = pipeline.named_steps["features"].transform([message]).tocsr()
-    contrib = x.data * coefs[x.indices]
+    effects = local_effect_coefficients(pipeline.named_steps["clf"], x)
+    if effects is None:
+        return {"fraud": [], "legitimate": []}
+
+    contrib = x.data * effects[0][x.indices]
     order = np.argsort(contrib)
 
     def pick(positions):
@@ -526,16 +588,22 @@ def predict_risk(model, message, threshold):
     print("==============================")
 
 
-def top_indicators(pipeline, X_train, y_train, k=20):
-    """Most fraud- and legitimacy-indicative word features — the explainability slide."""
-    coefs = linear_coefficients(pipeline.named_steps["clf"])
-    if coefs is None:
-        return []
-
+def top_indicators(pipeline, X_train, y_train, k=20, private_texts=()):
+    """Highest average local word-feature effects across the training messages."""
     word_branch = pipeline.named_steps["features"].transformer_list[0][1]
     names = word_branch.named_steps["tfidf"].get_feature_names_out()
-    word_coefs = coefs[: len(names)]
-    order = np.argsort(word_coefs)[::-1]
+    transformed = pipeline.named_steps["features"].transform(X_train).tocsr()
+    effects = local_effect_coefficients(pipeline.named_steps["clf"], transformed)
+    if effects is None:
+        return []
+    word_coefs = np.asarray(effects[:, :len(names)]).mean(axis=0)
+    private_tokens = {
+        token for text in private_texts for token in normalize_text(str(text)).split()
+    }
+    ranked = np.argsort(word_coefs)[::-1]
+    # Never fall back to private-derived terms: a smaller public indicator list
+    # is preferable to disclosing vocabulary learned from user feedback.
+    order = np.asarray([i for i in ranked if str(names[i]) not in private_tokens], dtype=int)
 
     print(f"\nTop {k} fraud indicators:")
     print("  " + ", ".join(names[i] for i in order[:k]))
@@ -593,7 +661,7 @@ def per_source_metrics(model, X_test, y_test, sources, threshold):
     return rows
 
 
-def error_analysis(messages, y_test, model, threshold, n=10):
+def error_analysis(messages, y_test, model, threshold, n=10, sources=None):
     """What the model gets wrong on the held-out split — judges ask this every single time."""
     scores = model.predict_proba(messages)[:, 1]
     preds = (scores >= threshold).astype(int)
@@ -602,10 +670,16 @@ def error_analysis(messages, y_test, model, threshold, n=10):
     fp_idx = np.where((y_test == 0) & (preds == 1))[0]
     index = feature_index(model)
 
+    source_values = ["public"] * len(messages) if sources is None else list(sources)
+    private_sources = {"user", "feedback"}
+
     def item(i, actual, predicted):
         drivers = term_contributions(model, messages[i], k=4, index=index)
+        source = source_values[i]
         return {
-            "message": messages[i],
+            "message": ("[redacted private feedback message]"
+                        if source in private_sources else messages[i]),
+            "source": source,
             "score": round(float(scores[i]), 4),
             "actual": actual,
             "predicted": predicted,
@@ -639,7 +713,7 @@ def main():
     parser.add_argument("--prevalence", type=float, default=DEFAULT_PREVALENCE,
                         help="share of real traffic assumed to be fraud when picking the threshold")
     parser.add_argument("--eda", action="store_true",
-                        help="also regenerate the EDA plots (opens plot windows)")
+                        help="also regenerate the EDA plots beside the output model")
     args = parser.parse_args()
     if not 0 < args.prevalence < 1:
         print(f"error: --prevalence must be between 0 and 1; got {args.prevalence}", file=sys.stderr)
@@ -653,7 +727,7 @@ def main():
 
     if args.eda:
         from eda import run_eda
-        run_eda()
+        run_eda(args.data, output_dir=args.out.parent)
 
     # One fold of a 5-way stratified group split = a ~20% test set with no
     # template shared with training.
@@ -663,6 +737,8 @@ def main():
     X_train, X_test = df["message"].iloc[train_idx], df["message"].iloc[test_idx]
     y_train, y_test = df["target"].iloc[train_idx], df["target"].iloc[test_idx]
     groups_train = groups.iloc[train_idx]
+    sources_train = (df["source"].iloc[train_idx] if "source" in df.columns
+                     else pd.Series([args.data.stem] * len(train_idx), index=X_train.index))
     print(f"\nTrain: {len(X_train)}  Test: {len(X_test)}  "
           f"(fraud rate {y_train.mean():.3f} / {y_test.mean():.3f})")
 
@@ -690,7 +766,9 @@ def main():
                                 method="predict_proba")[:, 1]
         cv_pr_auc = float(average_precision_score(y_train, oof))
         threshold = optimal_threshold(y_train.to_numpy(), oof, args.prevalence)
-        print(f"\n{name}: CV PR-AUC {cv_pr_auc:.4f}, cost-optimal threshold {threshold:.4f}")
+        cv_cost = prevalence_adjusted_cost(y_train.to_numpy(), oof, threshold, args.prevalence)
+        print(f"\n{name}: CV PR-AUC {cv_pr_auc:.4f}, target-prevalence cost {cv_cost:.1f}, "
+              f"cost-optimal threshold {threshold:.4f}")
 
         pipe.fit(X_train, y_train)
         results.append({
@@ -698,11 +776,13 @@ def main():
             "model": pipe,
             "threshold": threshold,
             "cvPrAuc": cv_pr_auc,
-            "test": evaluate(name, pipe, X_test, y_test, threshold),
+            "cvExpectedCost": cv_cost,
+            "test": evaluate(name, pipe, X_test, y_test, threshold, args.prevalence),
         })
 
-    best = max(results, key=lambda r: r["cvPrAuc"])
-    print(f"\n>>> Best model by CV PR-AUC: {best['name']} ({best['cvPrAuc']:.4f})")
+    best = min(results, key=lambda r: (r["cvExpectedCost"], -r["cvPrAuc"]))
+    print(f"\n>>> Best model by target-prevalence CV cost: {best['name']} "
+          f"(cost {best['cvExpectedCost']:.1f}, PR-AUC {best['cvPrAuc']:.4f})")
 
 
     predict_risk(
@@ -747,6 +827,7 @@ def main():
             {
                 "name": r["name"],
                 "cvPrAuc": r["cvPrAuc"],
+                "cvExpectedCost": r["cvExpectedCost"],
                 "threshold": r["threshold"],
                 "testPrAuc": r["test"]["prAuc"],
                 "testRocAuc": r["test"]["rocAuc"],
@@ -759,9 +840,15 @@ def main():
             for r in results
         ],
         "thresholdCurve": threshold_curve(y_test, best["model"].predict_proba(X_test)[:, 1]),
-        "topIndicators": top_indicators(best["model"], X_train, y_train),
+        "topIndicators": top_indicators(
+            best["model"], X_train, y_train,
+            private_texts=X_train[sources_train.isin({"user", "feedback"})].tolist(),
+        ),
+        "indicatorMethod": "average_local_probability_effect",
+        "selectionMethod": "target_prevalence_cv_cost",
         "errorAnalysis": error_analysis(
             X_test.tolist(), y_test.to_numpy(), best["model"], best["threshold"],
+            sources=sources_test,
         ),
         "keywordCategories": SUSPICIOUS_KEYWORDS,
     }

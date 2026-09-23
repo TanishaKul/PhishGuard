@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   ShieldAlert,
@@ -31,7 +31,7 @@ import { DetailDrawer } from '@/components/ui/DetailDrawer';
 import { ApiErrorPanel } from '@/components/ui/ApiErrorPanel';
 import { ApiError, getAnalyticsData, getScanHistory, scanMessage } from '@/lib/api';
 import { useModelReport } from '@/lib/hooks';
-import { AnalyticsData, ScanHistoryItem, ScanResult } from '@/lib/types';
+import { AnalyticsData, FeedbackLabel, ScanHistoryItem, ScanResult } from '@/lib/types';
 
 export default function DashboardPage() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
@@ -43,18 +43,27 @@ export default function DashboardPage() {
   const [isScanning, setIsScanning] = useState(false);
   const [quickResult, setQuickResult] = useState<ScanResult | null>(null);
   const [scanError, setScanError] = useState<ApiError | null>(null);
-  const { report } = useModelReport();
+  const { report, error: reportError, retry: retryReport } = useModelReport();
 
   const [historyError, setHistoryError] = useState<ApiError | null>(null);
+  const historyRequest = useRef(0);
+  const scanRequest = useRef(0);
 
-  const loadHistory = () =>
-    getScanHistory()
+  const loadHistory = () => {
+    const current = ++historyRequest.current;
+    return getScanHistory()
       .then((items) => {
+        if (historyRequest.current !== current) return;
         setHistory(items);
         setAnalytics(getAnalyticsData(items));
         setHistoryError(null);
       })
-      .catch((err) => setHistoryError(err instanceof ApiError ? err : new ApiError(String(err), 0)));
+      .catch((err) => {
+        if (historyRequest.current === current) {
+          setHistoryError(err instanceof ApiError ? err : new ApiError(String(err), 0));
+        }
+      });
+  };
 
   useEffect(() => {
     loadHistory();
@@ -62,18 +71,39 @@ export default function DashboardPage() {
 
   const handleQuickScan = async () => {
     if (!quickInput.trim()) return;
+    const current = ++scanRequest.current;
     setIsScanning(true);
     setQuickResult(null);
     setScanError(null);
     try {
       const res = await scanMessage(quickInput);
+      if (scanRequest.current !== current) return;
       setQuickResult(res);
       await loadHistory();
     } catch (err) {
-      setScanError(err instanceof ApiError ? err : new ApiError(String(err), 0));
+      if (scanRequest.current === current) {
+        setScanError(err instanceof ApiError ? err : new ApiError(String(err), 0));
+      }
     } finally {
-      setIsScanning(false);
+      if (scanRequest.current === current) setIsScanning(false);
     }
+  };
+
+  const handleQuickFeedback = (feedback: FeedbackLabel | null) => {
+    setQuickResult((item) => item ? { ...item, feedback } : item);
+  };
+
+  const handleHistoryFeedback = (feedback: ScanHistoryItem['feedback']) => {
+    if (!selectedHistoryItem) return;
+    setSelectedHistoryItem((item) => item
+      ? { ...item, feedback, result: { ...item.result, feedback } }
+      : item
+    );
+    setHistory((items) => items.map((item) =>
+      item.id === selectedHistoryItem.id
+        ? { ...item, feedback, result: { ...item.result, feedback } }
+        : item
+    ));
   };
 
   const totalScans = analytics?.totalScans ?? 0;
@@ -122,6 +152,7 @@ export default function DashboardPage() {
       </div>
 
       {historyError && <ApiErrorPanel error={historyError} onRetry={loadHistory} />}
+      {reportError && <ApiErrorPanel error={reportError} onRetry={retryReport} />}
 
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -232,6 +263,7 @@ export default function DashboardPage() {
               rows={3}
               value={quickInput}
               onChange={(e) => setQuickInput(e.target.value)}
+              disabled={isScanning}
               placeholder="Paste suspicious SMS text here (e.g. 'URGENT! Your account has been blocked. Click here to verify...')"
               className="w-full rounded-xl bg-slate-950/80 border border-slate-800 p-3.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/40 transition-all font-sans"
             />
@@ -244,6 +276,7 @@ export default function DashboardPage() {
               <span className="text-[11px] text-slate-400 font-mono">Try Example:</span>
               <button
                 type="button"
+                disabled={isScanning}
                 onClick={() =>
                   setQuickInput(
                     'URGENT! Your account has been blocked. Click here to verify immediately: https://secure-bank-auth.cc'
@@ -255,6 +288,7 @@ export default function DashboardPage() {
               </button>
               <button
                 type="button"
+                disabled={isScanning}
                 onClick={() =>
                   setQuickInput(
                     'Congratulations! You won a free £1,000 Walmart prize. Click http://giftcard-claim.com to redeem.'
@@ -266,6 +300,7 @@ export default function DashboardPage() {
               </button>
               <button
                 type="button"
+                disabled={isScanning}
                 onClick={() =>
                   setQuickInput('Hey, are we still meeting at 6 pm today? Let me know!')
                 }
@@ -305,7 +340,11 @@ export default function DashboardPage() {
         {/* Quick Result Output Display */}
         {quickResult && (
           <div className="mt-6 pt-6 border-t border-slate-800">
-            <ScanResultCard result={quickResult} onReset={() => setQuickResult(null)} />
+            <ScanResultCard
+              result={quickResult}
+              onReset={() => setQuickResult(null)}
+              onFeedbackChange={handleQuickFeedback}
+            />
           </div>
         )}
       </div>
@@ -520,6 +559,7 @@ export default function DashboardPage() {
         item={selectedHistoryItem}
         isOpen={Boolean(selectedHistoryItem)}
         onClose={() => setSelectedHistoryItem(null)}
+        onFeedbackChange={handleHistoryFeedback}
       />
     </AppShell>
   );

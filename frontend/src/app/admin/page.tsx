@@ -110,7 +110,7 @@ export default function AdminPage() {
                   <td className="py-2.5 px-3 font-mono text-slate-400 whitespace-nowrap">{f.createdAt}</td>
                   <td className="py-2.5 px-3 text-slate-200 max-w-md break-words">{f.message}</td>
                   <td className="py-2.5 px-3 font-mono">
-                    {f.predicted} {(f.probability * 100).toFixed(0)}%
+                    {f.predicted} {(f.probability * 100).toFixed(0)}% score
                   </td>
                   <td className={`py-2.5 px-3 font-mono font-bold ${f.wrong ? 'text-amber-400' : 'text-emerald-400'}`}>
                     {f.correctLabel === 'fraud' ? 'FRAUD' : 'LEGITIMATE'}

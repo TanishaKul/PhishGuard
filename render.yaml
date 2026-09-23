@@ -7,12 +7,17 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
     envVars:
+      - key: APP_ENV
+        value: production
       - key: DATABASE_URL
         fromDatabase:
           name: phishguard-db
           property: connectionString
       - key: COOKIE_SECURE
         value: "1"
+      # Trust Render's proxy chain so rate limits see the client address.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
       # Public HTTPS URL of the trained model file and its SHA-256.
       - key: MODEL_URL
         sync: false
@@ -21,7 +26,17 @@ services:
       # Web app address, used in password-reset links.
       - key: APP_URL
         sync: false
-      # Optional: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, MAIL_FROM for real email.
+      # Required for password resets. Production delivery fails closed without SMTP.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
 
 databases:
   - name: phishguard-db
