@@ -2,60 +2,91 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Settings,
   Sliders,
   Server,
   Database,
-  ShieldAlert,
   CheckCircle2,
   RefreshCw,
-  Info,
   Scale,
-  Zap,
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
+import { ApiErrorPanel, LoadingPanel } from '@/components/ui/ApiErrorPanel';
+import {
+  ApiError,
+  getApiUrl,
+  getHealth,
+  getThresholdOverride,
+  setApiUrl as saveApiUrl,
+  setThresholdOverride,
+} from '@/lib/api';
+import { useModelReport } from '@/lib/hooks';
 
 export default function SettingsPage() {
-  const [threshold, setThreshold] = useState<number>(0.0417);
-  const [apiMode, setApiMode] = useState<'mock' | 'live'>('mock');
-  const [apiUrl, setApiUrl] = useState<string>('http://localhost:8000');
-  const [savedSuccess, setSavedSuccess] = useState(false);
+  const { report, error, retry } = useModelReport();
+  const [threshold, setThreshold] = useState<number | null>(null);
+  const [appliedThreshold, setAppliedThreshold] = useState<number | null>(null);
+  const [apiUrl, setApiUrl] = useState<string>('');
+  const [connection, setConnection] = useState<{ ok: boolean; text: string } | null>(null);
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [costFn, setCostFn] = useState<number>(10.0);
   const [costFp, setCostFp] = useState<number>(1.0);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const mode = localStorage.getItem('phishguard_api_mode') as 'mock' | 'live';
-      const url = localStorage.getItem('phishguard_api_url');
-      if (mode) setApiMode(mode);
-      if (url) setApiUrl(url);
-    }
+    setApiUrl(getApiUrl());
+    setAppliedThreshold(getThresholdOverride());
   }, []);
 
-  const handleSaveSettings = () => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('phishguard_api_mode', apiMode);
-      localStorage.setItem('phishguard_api_url', apiUrl);
-    }
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2500);
+  useEffect(() => {
+    if (!report) return;
+    setThreshold((t) => t ?? getThresholdOverride() ?? report.metrics.threshold);
+    setCostFn(report.metrics.costFnWeight);
+    setCostFp(report.metrics.costFpWeight);
+  }, [report]);
+
+  const flash = (text: string) => {
+    setSavedMessage(text);
+    setTimeout(() => setSavedMessage(null), 2500);
   };
 
-  // Threshold Simulation Calculations
-  // As threshold increases:
-  // - FP decreases (e.g. from 50 to 2)
-  // - FN increases (e.g. from 0 to 25)
-  const simFp = Math.max(0, Math.round(32 * Math.exp(-6 * (threshold - 0.0417))));
-  const simFn = Math.max(
-    0,
-    Math.round(1 + 130 * (1 / (1 + Math.exp(-12 * (threshold - 0.25))) - 0.047))
-  );
-  const simCost = costFn * simFn + costFp * simFp;
-  const simRecall = Math.max(75, Math.min(100, ((131 - simFn) / 131) * 100));
-  const simPrecision = Math.max(
-    60,
-    Math.min(99, ((131 - simFn) / (131 - simFn + simFp || 1)) * 100)
-  );
+  const handleTestAndSave = async () => {
+    saveApiUrl(apiUrl.trim() || null);
+    setConnection(null);
+    try {
+      const health = await getHealth();
+      setConnection({ ok: true, text: `Connected: ${health.model} (threshold ${health.threshold.toFixed(4)})` });
+      flash('API endpoint saved');
+      retry();
+    } catch (err) {
+      const e = err instanceof ApiError ? err : new ApiError(String(err), 0);
+      setConnection({ ok: false, text: e.hint ? `${e.message} ${e.hint}` : e.message });
+    }
+  };
+
+  const handleApplyThreshold = () => {
+    if (threshold === null) return;
+    setThresholdOverride(threshold);
+    setAppliedThreshold(threshold);
+    flash(`Scans now use threshold ${threshold.toFixed(2)}`);
+  };
+
+  const handleResetThreshold = () => {
+    setThresholdOverride(null);
+    setAppliedThreshold(null);
+    if (report) setThreshold(report.metrics.threshold);
+    flash("Scans use the model's own threshold");
+  };
+
+  // Nearest point on the test-split threshold curve saved at training time.
+  const point =
+    report && threshold !== null
+      ? report.thresholdCurve.reduce((best, p) =>
+          Math.abs(p.threshold - threshold) < Math.abs(best.threshold - threshold) ? p : best
+        )
+      : null;
+  const simCost = point ? costFn * point.fn + costFp * point.fp : 0;
+  const simRecall = point && point.tp + point.fn ? (point.tp / (point.tp + point.fn)) * 100 : 0;
+  const simPrecision = point && point.tp + point.fp ? (point.tp / (point.tp + point.fp)) * 100 : 0;
+  const modelThreshold = report?.metrics.threshold ?? 0;
 
   return (
     <AppShell>
@@ -70,16 +101,16 @@ export default function SettingsPage() {
               Decision Boundary Tuning
             </span>
           </div>
-          <h2 className="text-xl font-bold text-slate-100">Threshold Simulator & Bridge Settings</h2>
+          <h2 className="text-xl font-bold text-slate-100">Threshold Simulator & API Settings</h2>
           <p className="text-xs text-slate-400">
-            Simulate operating threshold trade-offs and configure API endpoints between the mock engine and live backend.
+            Explore threshold trade-offs on the held-out test split and configure the fraud-detection API endpoint.
           </p>
         </div>
 
-        {savedSuccess && (
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold animate-pulse">
+        {savedMessage && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold">
             <CheckCircle2 className="w-4 h-4" />
-            <span>Settings Saved Successfully</span>
+            <span>{savedMessage}</span>
           </div>
         )}
       </div>
@@ -87,99 +118,112 @@ export default function SettingsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Threshold Simulator (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
-          <div className="p-6 rounded-2xl glass-panel border border-slate-800 space-y-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sliders className="w-5 h-5 text-cyan-400" />
-                <h3 className="text-sm font-bold text-slate-100">
-                  Interactive Operating Threshold Simulator
-                </h3>
+          {!report || !point || threshold === null ? (
+            error ? (
+              <ApiErrorPanel error={error} onRetry={retry} />
+            ) : (
+              <LoadingPanel label="Loading threshold curve..." />
+            )
+          ) : (
+            <div className="p-6 rounded-2xl glass-panel border border-slate-800 space-y-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-cyan-400" />
+                  <h3 className="text-sm font-bold text-slate-100">Operating Threshold Simulator</h3>
+                </div>
+                <button
+                  onClick={handleResetThreshold}
+                  className="text-xs font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Reset to model default ({modelThreshold.toFixed(4)})</span>
+                </button>
               </div>
-              <button
-                onClick={() => setThreshold(0.0417)}
-                className="text-xs font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-              >
-                <RefreshCw className="w-3 h-3" />
-                <span>Reset to Optimal (0.0417)</span>
-              </button>
-            </div>
 
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Moving the decision threshold $\tau$ shifts the trade-off between missing smishing attacks (FN) versus generating false alarms (FP).
-            </p>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Counts below are real: the saved model re-scored on the {report.metrics.testSamples.toLocaleString()}{' '}
+                held-out test messages at each threshold (0.01 steps).
+              </p>
 
-            {/* Slider Control */}
-            <div className="space-y-2 p-4 rounded-xl bg-slate-950 border border-slate-800">
-              <div className="flex items-center justify-between font-mono text-xs">
-                <span className="text-slate-400">Decision Threshold ($\tau$):</span>
-                <span className="text-base font-bold text-cyan-400">
-                  {(threshold * 100).toFixed(2)}% ({threshold.toFixed(4)})
-                </span>
+              {/* Slider Control */}
+              <div className="space-y-2 p-4 rounded-xl bg-slate-950 border border-slate-800">
+                <div className="flex items-center justify-between font-mono text-xs">
+                  <span className="text-slate-400">Decision threshold:</span>
+                  <span className="text-base font-bold text-cyan-400">{point.threshold.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.01"
+                  max="0.99"
+                  step="0.01"
+                  value={threshold}
+                  onChange={(e) => setThreshold(parseFloat(e.target.value))}
+                  className="w-full accent-cyan-500 cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] text-slate-500 font-mono pt-1">
+                  <span>0.01 (High recall)</span>
+                  <span className="text-cyan-400 font-bold">Model default {modelThreshold.toFixed(2)}</span>
+                  <span>0.99 (Conservative)</span>
+                </div>
               </div>
-              <input
-                type="range"
-                min="0.01"
-                max="0.60"
-                step="0.005"
-                value={threshold}
-                onChange={(e) => setThreshold(parseFloat(e.target.value))}
-                className="w-full accent-cyan-500 cursor-pointer"
-              />
-              <div className="flex justify-between text-[10px] text-slate-500 font-mono pt-1">
-                <span>1.0% (High Recall)</span>
-                <span className="text-cyan-400 font-bold">4.17% (Optimal Cost Min)</span>
-                <span>60.0% (Conservative)</span>
-              </div>
-            </div>
 
-            {/* Real-time Dynamic Simulation Results */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
-              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                <span className="text-slate-400 text-[10px] block uppercase">Est. Recall</span>
-                <span className="text-emerald-400 text-lg font-bold">
-                  {simRecall.toFixed(1)}%
-                </span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                  <span className="text-slate-400 text-[10px] block uppercase">Recall</span>
+                  <span className="text-emerald-400 text-lg font-bold">{simRecall.toFixed(1)}%</span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                  <span className="text-slate-400 text-[10px] block uppercase">Precision</span>
+                  <span className="text-slate-200 text-lg font-bold">{simPrecision.toFixed(1)}%</span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                  <span className="text-slate-400 text-[10px] block uppercase">False Alarms (FP)</span>
+                  <span className="text-amber-400 text-lg font-bold">{point.fp}</span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                  <span className="text-slate-400 text-[10px] block uppercase">Missed Fraud (FN)</span>
+                  <span className="text-rose-400 text-lg font-bold">{point.fn}</span>
+                </div>
               </div>
-              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                <span className="text-slate-400 text-[10px] block uppercase">Est. Precision</span>
-                <span className="text-slate-200 text-lg font-bold">
-                  {simPrecision.toFixed(1)}%
-                </span>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                <span className="text-slate-400 text-[10px] block uppercase">False Alarms (FP)</span>
-                <span className="text-amber-400 text-lg font-bold">{simFp}</span>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                <span className="text-slate-400 text-[10px] block uppercase">Missed Fraud (FN)</span>
-                <span className="text-rose-400 text-lg font-bold">{simFn}</span>
-              </div>
-            </div>
 
-            {/* Total Simulated Cost Callout */}
-            <div className="p-4 rounded-xl bg-cyan-950/20 border border-cyan-500/30 flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-slate-200 block">
-                  Simulated Expected Cost:
-                </span>
+              <div className="p-4 rounded-xl bg-cyan-950/20 border border-cyan-500/30 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-slate-200 block">Expected cost on test split:</span>
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    ({costFn} × {point.fn} FN) + ({costFp} × {point.fp} FP)
+                  </span>
+                </div>
+                <div className="text-2xl font-black font-mono text-cyan-400">{simCost.toFixed(1)}</div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="text-[11px] text-slate-400 font-mono">
-                  ({costFn} × {simFn} FN) + ({costFp} × {simFp} FP)
+                  Scans currently use:{' '}
+                  <span className="text-cyan-300">
+                    {appliedThreshold === null
+                      ? `model default (${modelThreshold.toFixed(4)})`
+                      : appliedThreshold.toFixed(2)}
+                  </span>
                 </span>
-              </div>
-              <div className="text-2xl font-black font-mono text-cyan-400">
-                {simCost.toFixed(1)}
+                <button
+                  onClick={handleApplyThreshold}
+                  className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-all cursor-pointer"
+                >
+                  Use {threshold.toFixed(2)} for scans
+                </button>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Cost Matrix Weights */}
           <div className="p-6 rounded-2xl glass-panel border border-slate-800 space-y-4">
             <div className="flex items-center gap-2">
               <Scale className="w-5 h-5 text-amber-400" />
-              <h3 className="text-sm font-bold text-slate-100">Cost Matrix Configuration</h3>
+              <h3 className="text-sm font-bold text-slate-100">Cost Matrix (simulator only)</h3>
             </div>
             <p className="text-xs text-slate-400">
-              Set the relative penalty for a missed smishing threat versus an annoying false alarm.
+              Relative penalty for a missed smishing message versus a false alarm. Changing these updates the cost
+              above; the model&apos;s default threshold was optimised for the training-time weights.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -189,139 +233,98 @@ export default function SettingsPage() {
                 </label>
                 <input
                   type="number"
+                  min="0"
                   value={costFn}
-                  onChange={(e) => setCostFn(parseFloat(e.target.value) || 1)}
+                  onChange={(e) => setCostFn(Math.max(0, parseFloat(e.target.value) || 0))}
                   className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-rose-400 font-bold focus:outline-none focus:border-cyan-500"
                 />
-                <span className="text-[10px] text-slate-500 mt-1 block">Default: 10.0 (10x worse)</span>
+                <span className="text-[10px] text-slate-500 mt-1 block">
+                  Training default: {report?.metrics.costFnWeight ?? '—'}
+                </span>
               </div>
 
               <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800">
                 <label className="text-xs font-mono text-slate-300 block mb-1.5">
-                  Cost False Negative (C_FN):
+                  Cost False Positive (C_FP):
                 </label>
                 <input
                   type="number"
+                  min="0"
                   value={costFp}
-                  onChange={(e) => setCostFp(parseFloat(e.target.value) || 1)}
+                  onChange={(e) => setCostFp(Math.max(0, parseFloat(e.target.value) || 0))}
                   className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-amber-400 font-bold focus:outline-none focus:border-cyan-500"
                 />
-                <span className="text-[10px] text-slate-500 mt-1 block">Default: 1.0 (Baseline)</span>
+                <span className="text-[10px] text-slate-500 mt-1 block">
+                  Training default: {report?.metrics.costFpWeight ?? '—'}
+                </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right: API Mode & System Architecture (5 cols) */}
+        {/* Right: API endpoint & model info (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
-          {/* API Bridge Selector */}
           <div className="p-6 rounded-2xl glass-panel border border-slate-800 space-y-4">
             <div className="flex items-center gap-2">
               <Server className="w-5 h-5 text-cyan-400" />
-              <h3 className="text-sm font-bold text-slate-100">API Gateway & Engine Mode</h3>
+              <h3 className="text-sm font-bold text-slate-100">Fraud-Detection API</h3>
             </div>
             <p className="text-xs text-slate-400">
-              Select between the client-side calibrated mock engine and a live local Python ML API server.
+              All scoring runs in the Python API (<code className="font-mono">api_server.py</code>). There is no
+              offline mode: if the API is down, scans show an error.
             </p>
 
-            <div className="space-y-3">
-              <label
-                onClick={() => setApiMode('mock')}
-                className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
-                  apiMode === 'mock'
-                    ? 'bg-cyan-950/30 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
-                    : 'bg-slate-950 border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="apiMode"
-                  checked={apiMode === 'mock'}
-                  onChange={() => setApiMode('mock')}
-                  className="mt-1 accent-cyan-500"
-                />
-                <div>
-                  <span className="text-xs font-bold text-slate-200 block">
-                    Mock Engine (Fast / Zero Backend Setup)
-                  </span>
-                  <span className="text-[11px] text-slate-400 leading-relaxed block mt-0.5">
-                    Runs deterministic entity extraction and LinearSVC scoring directly in the browser.
-                  </span>
-                </div>
-              </label>
-
-              <label
-                onClick={() => setApiMode('live')}
-                className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
-                  apiMode === 'live'
-                    ? 'bg-cyan-950/30 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
-                    : 'bg-slate-950 border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="apiMode"
-                  checked={apiMode === 'live'}
-                  onChange={() => setApiMode('live')}
-                  className="mt-1 accent-cyan-500"
-                />
-                <div>
-                  <span className="text-xs font-bold text-slate-200 block">
-                    Live Python API Server (Local Bridge)
-                  </span>
-                  <span className="text-[11px] text-slate-400 leading-relaxed block mt-0.5">
-                    Connects to Python joblib pipeline at specified endpoint URL.
-                  </span>
-                </div>
-              </label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-mono text-slate-400 block">API endpoint:</label>
+              <input
+                type="text"
+                value={apiUrl}
+                onChange={(e) => setApiUrl(e.target.value)}
+                placeholder="http://localhost:8000"
+                className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-cyan-400 focus:outline-none focus:border-cyan-500"
+              />
             </div>
 
-            {apiMode === 'live' && (
-              <div className="pt-2 space-y-1.5">
-                <label className="text-xs font-mono text-slate-400 block">Python Server Endpoint:</label>
-                <input
-                  type="text"
-                  value={apiUrl}
-                  onChange={(e) => setApiUrl(e.target.value)}
-                  placeholder="http://localhost:8000"
-                  className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-cyan-400 focus:outline-none focus:border-cyan-500"
-                />
-              </div>
+            {connection && (
+              <p className={`text-xs font-mono break-words ${connection.ok ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {connection.text}
+              </p>
             )}
 
             <button
-              onClick={handleSaveSettings}
+              onClick={handleTestAndSave}
               className="w-full py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all cursor-pointer"
             >
-              Save Configuration
+              Test Connection & Save
             </button>
           </div>
 
-          {/* System Environment Information */}
           <div className="p-6 rounded-2xl glass-panel border border-slate-800 space-y-3 font-mono text-xs">
             <div className="flex items-center gap-2 font-sans font-bold text-slate-200 mb-2">
               <Database className="w-4 h-4 text-cyan-400" />
-              <span>Machine Learning Environment</span>
-            </div>
-            <div className="flex justify-between text-slate-400 border-b border-slate-800/80 pb-1.5">
-              <span>Model Artifact:</span>
-              <span className="text-slate-200">fraud_model.joblib</span>
+              <span>Loaded Model</span>
             </div>
             <div className="flex justify-between text-slate-400 border-b border-slate-800/80 pb-1.5">
               <span>Classifier:</span>
-              <span className="text-cyan-400 font-bold">LinearSVC (calibrated)</span>
+              <span className="text-cyan-400 font-bold">{report?.metrics.modelName ?? '—'}</span>
+            </div>
+            <div className="flex justify-between text-slate-400 border-b border-slate-800/80 pb-1.5">
+              <span>Default threshold:</span>
+              <span className="text-slate-200">{report ? modelThreshold.toFixed(4) : '—'}</span>
             </div>
             <div className="flex justify-between text-slate-400 border-b border-slate-800/80 pb-1.5">
               <span>Vectorization:</span>
-              <span className="text-slate-200">Word (1-2) + Char (3-5)</span>
+              <span className="text-slate-200">Word (1-2) + Char (3-5) + 12 signals</span>
             </div>
             <div className="flex justify-between text-slate-400 border-b border-slate-800/80 pb-1.5">
               <span>Dataset:</span>
-              <span className="text-slate-200">UCI SMS Collection (spam.csv)</span>
+              <span className="text-slate-200">{report ? `${report.dataset} (UCI SMS, 2012)` : '—'}</span>
             </div>
             <div className="flex justify-between text-slate-400">
-              <span>Training Pipeline:</span>
-              <span className="text-slate-200 font-sans">spamham_project_v3.py</span>
+              <span>Train / test:</span>
+              <span className="text-slate-200">
+                {report ? `${report.metrics.trainSamples} / ${report.metrics.testSamples}` : '—'}
+              </span>
             </div>
           </div>
         </div>

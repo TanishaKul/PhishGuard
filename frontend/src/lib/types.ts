@@ -14,7 +14,8 @@ export type DetectedSignalCategory =
   | 'entity_currency'
   | 'entity_shortcode'
   | 'exclamation'
-  | 'obfuscation';
+  | 'obfuscation'
+  | 'link_risk';
 
 export interface DetectedSignal {
   id: string;
@@ -60,18 +61,34 @@ export interface ScanResult {
   reasons: string[];
   detectedSignals: DetectedSignal[];
   modelFeatures: ModelFeaturesBreakdown;
+  modelContributions: ModelContributions;
   recommendedAction: RecommendedAction;
   timestamp: string;
   latencyMs: number;
+  // The user's verdict on this result, if they gave one.
+  feedback?: FeedbackLabel | null;
+}
+
+export type FeedbackLabel = 'fraud' | 'legit';
+
+export interface FeatureContribution {
+  term: string;
+  kind: 'word' | 'char' | 'signal';
+  weight: number;
+}
+
+// Exact per-feature shares of the linear model's decision score.
+export interface ModelContributions {
+  fraud: FeatureContribution[];
+  legitimate: FeatureContribution[];
 }
 
 export interface ThreatIndicator {
   term: string;
   weight: number;
-  category: string;
   type: 'fraud' | 'legitimate';
-  description?: string;
-  examplesCount?: number;
+  fraudDocs: number;
+  legitDocs: number;
 }
 
 export interface ScanHistoryItem {
@@ -86,6 +103,9 @@ export interface ScanHistoryItem {
   reasonsCount: number;
   topReason?: string;
   detectedCategories: string[];
+  feedback: FeedbackLabel | null;
+  // Full API response, kept so the detail view shows exactly what was returned.
+  result: ScanResult;
 }
 
 export interface ConfusionMatrixData {
@@ -116,14 +136,12 @@ export interface ModelMetrics {
 }
 
 export interface ErrorAnalysisItem {
-  id: string;
   message: string;
   score: number;
-  riskScore: number;
   actual: ScanVerdict;
   predicted: ScanVerdict;
-  reason: string;
-  whyMissedOrAlarm: string;
+  fraudDrivers: FeatureContribution[];
+  legitimateDrivers: FeatureContribution[];
 }
 
 export interface ErrorAnalysisData {
@@ -136,6 +154,7 @@ export interface ErrorAnalysisData {
 export interface ModelComparisonItem {
   name: string;
   cvPrAuc: number;
+  threshold: number;
   testPrAuc: number;
   testRocAuc: number;
   precision: number;
@@ -143,15 +162,32 @@ export interface ModelComparisonItem {
   f1: number;
   expectedCost: number;
   isBest: boolean;
-  description: string;
 }
 
-export interface KeywordCategoryItem {
-  category: string;
-  displayName: string;
-  description: string;
-  keywords: string[];
-  badgeColor: string;
+export interface ThresholdPoint {
+  threshold: number;
+  tp: number;
+  fp: number;
+  fn: number;
+  tn: number;
+}
+
+// Everything /api/metrics returns; produced by spamham_project_v3.py at training time.
+export interface ModelReport {
+  dataset: string;
+  metrics: ModelMetrics;
+  comparisons: ModelComparisonItem[];
+  thresholdCurve: ThresholdPoint[];
+  topIndicators: ThreatIndicator[];
+  errorAnalysis: ErrorAnalysisData;
+  keywordCategories: Record<string, string[]>;
+}
+
+export interface ApiHealth {
+  status: 'active';
+  model: string;
+  threshold: number;
+  hasReport: boolean;
 }
 
 export interface AnalyticsData {

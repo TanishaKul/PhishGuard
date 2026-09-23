@@ -1,10 +1,46 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
+import { ApiErrorPanel, LoadingPanel } from '@/components/ui/ApiErrorPanel';
+import { refreshSession, useSession } from '@/lib/hooks';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const session = useSession();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (session.status === 'signed-out') {
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+    }
+  }, [session.status, router, pathname]);
+
+  useEffect(() => {
+    // History used to live in localStorage; it is in the database now.
+    try {
+      localStorage.removeItem('phishguard_history');
+    } catch {
+      // Storage blocked; nothing to clean up.
+    }
+  }, []);
+
+  if (session.status !== 'signed-in') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#070a12] text-slate-100 cyber-grid-bg p-6">
+        <div className="w-full max-w-lg">
+          {session.status === 'error' ? (
+            <ApiErrorPanel error={session.error} onRetry={refreshSession} />
+          ) : (
+            <LoadingPanel label="Checking your session..." />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex bg-[#070a12] text-slate-100 cyber-grid-bg">
       <Sidebar />

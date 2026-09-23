@@ -10,9 +10,7 @@ import {
   TrendingUp,
   AlertTriangle,
   ArrowRight,
-  Sparkles,
   Zap,
-  Clock,
   Radio,
   ExternalLink,
 } from 'lucide-react';
@@ -30,7 +28,9 @@ import {
 import { AppShell } from '@/components/layout/AppShell';
 import { ScanResultCard } from '@/components/ui/ScanResultCard';
 import { DetailDrawer } from '@/components/ui/DetailDrawer';
-import { getAnalyticsData, getScanHistory, scanMessage } from '@/lib/api';
+import { ApiErrorPanel } from '@/components/ui/ApiErrorPanel';
+import { ApiError, getAnalyticsData, getScanHistory, scanMessage } from '@/lib/api';
+import { useModelReport } from '@/lib/hooks';
 import { AnalyticsData, ScanHistoryItem, ScanResult } from '@/lib/types';
 
 export default function DashboardPage() {
@@ -42,29 +42,44 @@ export default function DashboardPage() {
   const [quickInput, setQuickInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [quickResult, setQuickResult] = useState<ScanResult | null>(null);
+  const [scanError, setScanError] = useState<ApiError | null>(null);
+  const { report } = useModelReport();
+
+  const [historyError, setHistoryError] = useState<ApiError | null>(null);
+
+  const loadHistory = () =>
+    getScanHistory()
+      .then((items) => {
+        setHistory(items);
+        setAnalytics(getAnalyticsData(items));
+        setHistoryError(null);
+      })
+      .catch((err) => setHistoryError(err instanceof ApiError ? err : new ApiError(String(err), 0)));
 
   useEffect(() => {
-    setAnalytics(getAnalyticsData());
-    setHistory(getScanHistory());
+    loadHistory();
   }, []);
 
   const handleQuickScan = async () => {
     if (!quickInput.trim()) return;
     setIsScanning(true);
     setQuickResult(null);
+    setScanError(null);
     try {
       const res = await scanMessage(quickInput);
       setQuickResult(res);
-      setHistory(getScanHistory());
-      setAnalytics(getAnalyticsData());
+      await loadHistory();
+    } catch (err) {
+      setScanError(err instanceof ApiError ? err : new ApiError(String(err), 0));
     } finally {
       setIsScanning(false);
     }
   };
 
-  const threatShare = analytics
-    ? Math.round((analytics.fraudCount / (analytics.totalScans || 1)) * 100)
-    : 30;
+  const totalScans = analytics?.totalScans ?? 0;
+  const threatShare = totalScans ? Math.round(((analytics?.fraudCount ?? 0) / totalScans) * 100) : 0;
+  const highShare = totalScans ? Math.round(((analytics?.highRiskCount ?? 0) / totalScans) * 100) : 0;
+  const metrics = report?.metrics;
 
   return (
     <AppShell>
@@ -84,7 +99,15 @@ export default function DashboardPage() {
             SMS Fraud & Smishing Intelligence Feed
           </h2>
           <p className="text-xs text-slate-400">
-            Calibrated LinearSVC classifier operating at <span className="text-cyan-300 font-mono">0.0417</span> decision threshold (99.2% recall).
+            {metrics ? (
+              <>
+                {metrics.modelName} operating at{' '}
+                <span className="text-cyan-300 font-mono">{metrics.threshold.toFixed(4)}</span> decision
+                threshold ({(metrics.recall * 100).toFixed(1)}% recall on the held-out test split).
+              </>
+            ) : (
+              'Model details load from the fraud-detection API.'
+            )}
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
@@ -98,6 +121,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {historyError && <ApiErrorPanel error={historyError} onRetry={loadHistory} />}
+
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Total Scans */}
@@ -108,10 +133,10 @@ export default function DashboardPage() {
           </div>
           <div className="my-2">
             <div className="text-2xl font-black font-mono text-slate-100">
-              {analytics?.totalScans.toLocaleString() || '1,248'}
+              {totalScans.toLocaleString()}
             </div>
-            <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
-              <TrendingUp className="w-3 h-3" /> +14.2% from last week
+            <span className="text-[11px] text-slate-400 flex items-center gap-1 font-medium">
+              <TrendingUp className="w-3 h-3" /> Your scans
             </span>
           </div>
           <div className="w-full bg-slate-800/80 h-1.5 rounded-full overflow-hidden">
@@ -127,10 +152,10 @@ export default function DashboardPage() {
           </div>
           <div className="my-2">
             <div className="text-2xl font-black font-mono text-rose-400">
-              {analytics?.fraudCount.toLocaleString() || '384'}
+              {(analytics?.fraudCount ?? 0).toLocaleString()}
             </div>
             <span className="text-[11px] text-rose-400/80 font-mono">
-              {threatShare}% threat detection rate
+              {threatShare}% of scans flagged
             </span>
           </div>
           <div className="w-full bg-slate-800/80 h-1.5 rounded-full overflow-hidden">
@@ -146,14 +171,14 @@ export default function DashboardPage() {
           </div>
           <div className="my-2">
             <div className="text-2xl font-black font-mono text-emerald-400">
-              {analytics?.legitCount.toLocaleString() || '864'}
+              {(analytics?.legitCount ?? 0).toLocaleString()}
             </div>
             <span className="text-[11px] text-emerald-400/80 font-mono">
-              {100 - threatShare}% clean delivery
+              {totalScans ? 100 - threatShare : 0}% below threshold
             </span>
           </div>
           <div className="w-full bg-slate-800/80 h-1.5 rounded-full overflow-hidden">
-            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${100 - threatShare}%` }} />
+            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${totalScans ? 100 - threatShare : 0}%` }} />
           </div>
         </div>
 
@@ -165,14 +190,14 @@ export default function DashboardPage() {
           </div>
           <div className="my-2">
             <div className="text-2xl font-black font-mono text-amber-400">
-              {analytics?.highRiskCount.toLocaleString() || '372'}
+              {(analytics?.highRiskCount ?? 0).toLocaleString()}
             </div>
             <span className="text-[11px] text-amber-400/80 font-mono">
               &gt;70% risk confidence
             </span>
           </div>
           <div className="w-full bg-slate-800/80 h-1.5 rounded-full overflow-hidden">
-            <div className="bg-amber-500 h-full rounded-full" style={{ width: '88%' }} />
+            <div className="bg-amber-500 h-full rounded-full" style={{ width: `${highShare}%` }} />
           </div>
         </div>
       </div>
@@ -270,6 +295,12 @@ export default function DashboardPage() {
             </button>
           </div>
         </div>
+
+        {scanError && (
+          <div className="mt-6">
+            <ApiErrorPanel error={scanError} onRetry={handleQuickScan} />
+          </div>
+        )}
 
         {/* Quick Result Output Display */}
         {quickResult && (
@@ -376,7 +407,7 @@ export default function DashboardPage() {
             </ResponsiveContainer>
             <div className="absolute text-center pointer-events-none">
               <span className="text-lg font-bold font-mono text-slate-100">
-                {analytics?.fraudCount || 384}
+                {analytics?.fraudCount ?? 0}
               </span>
               <span className="text-[10px] block text-slate-400 uppercase">Threats</span>
             </div>
@@ -425,6 +456,13 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
+              {history.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-6 text-center text-slate-400">
+                    No scans yet. Scan a message above to populate this dashboard.
+                  </td>
+                </tr>
+              )}
               {history.slice(0, 5).map((item) => (
                 <tr
                   key={item.id}

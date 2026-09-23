@@ -1,145 +1,573 @@
 # -*- coding: utf-8 -*-
 """
-PHISHGUARD Python ML API Bridge Server
-Provides a REST API for the Next.js frontend over the trained scikit-learn pipeline.
+PHISHGUARD API: scores SMS messages with the trained model, with user accounts
+and per-user scan history.
+
+Public:
+  GET    /api/health          model status (503 if no model is loaded)
+  GET    /api/metrics         evaluation report saved at training time
+  POST   /api/auth/register   {"email", "password"} -> sets session cookie
+  POST   /api/auth/login      {"email", "password"} -> sets session cookie
+  POST   /api/auth/forgot     {"email"} -> emails a reset link (always 202)
+  POST   /api/auth/reset      {"token", "password"} -> new password, signs in
+Signed in (session cookie):
+  POST   /api/auth/logout
+  GET    /api/auth/me
+  POST   /api/scan            {"message": str, "threshold"?: float in (0, 1)}
+  GET    /api/history         ?limit=1..500&offset=0
+  DELETE /api/history         delete all of the user's scans
+  DELETE /api/history/{id}
+  POST   /api/scans/{id}/feedback   {"correctLabel": "fraud"|"legit", "note"?: str}
+  DELETE /api/scans/{id}/feedback
+Admins (python manage.py make-admin EMAIL):
+  GET    /api/admin/stats
+  GET    /api/admin/feedback  ?limit=1..500
+
+Configuration (environment): MODEL_PATH, MODEL_URL + MODEL_SHA256 (download the
+model on startup when MODEL_PATH is missing), DATABASE_URL (see db.py),
+ALLOWED_ORIGINS (comma-separated, added to localhost), COOKIE_SECURE=1 behind HTTPS,
+COOKIE_SAMESITE=none when the frontend is on another site (requires COOKIE_SECURE=1),
+APP_URL (frontend address used in reset links), SMTP_* (see mailer.py).
 
 Run: python api_server.py --port 8000
 """
 
 import argparse
-import json
 import os
+import re
 import sys
-import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Annotated, Literal
+from spamham_project_v3 import TextNormalizer, HandcraftedFeatures
+
+sys.modules["__main__"].TextNormalizer = TextNormalizer
+sys.modules["__main__"].HandcraftedFeatures = HandcraftedFeatures
 import joblib
-import numpy as np
+from fastapi import Cookie, Depends, FastAPI, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from pydantic import BaseModel
+from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-# Ensure classes are accessible for unpickling
+import auth
+import mailer
+import message_analysis
+from scrub_messages import scrub
 import spamham_project_v3 as sp
+from db import AuthSession, Database, Feedback, PasswordReset, Scan, User
 
-sys.modules['__main__'].TextNormalizer = sp.TextNormalizer
-sys.modules['__main__'].HandcraftedFeatures = sp.HandcraftedFeatures
+TRAIN_COMMAND = "python spamham_project_v3.py --data spam.csv"
 
-MODEL_PATH = Path("fraud_model.joblib")
-DATA_PATH = Path("spam.csv")
+# Concatenated SMS tops out around 1,600 characters; this leaves headroom
+# without letting one request tie up the model.
+MAX_MESSAGE_CHARS = 5000
+MAX_BODY_BYTES = 64 * 1024
 
-pipeline = None
-default_threshold = 0.0417
-model_name = "LinearSVC (calibrated)"
+LOCALHOST_ORIGINS = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 
-def load_ml_model():
-    global pipeline, default_threshold, model_name
-    if not MODEL_PATH.exists():
-        print(f"Warning: {MODEL_PATH} not found. Running with fallback parameters.")
-        return
-    try:
-        data = joblib.load(MODEL_PATH)
-        pipeline = data.get("pipeline")
-        default_threshold = float(data.get("threshold", 0.0417))
-        model_name = data.get("model_name", "LinearSVC (calibrated)")
-        print(f"[PhishGuard] Loaded {model_name} with threshold {default_threshold:.4f}")
-    except Exception as e:
-        print(f"[PhishGuard] Error loading model: {e}")
 
-class PhishGuardAPIHandler(BaseHTTPRequestHandler):
-    def _send_json(self, data, status=200):
-        body = json.dumps(data).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
-        self.wfile.write(body)
+class ApiError(Exception):
+    def __init__(self, status, message, hint=None, headers=None):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+        self.hint = hint
+        self.headers = headers
 
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
 
-    def do_GET(self):
-        path = self.path.split("?")[0]
-        if path == "/api/health":
-            self._send_json({"status": "active", "model": model_name, "threshold": default_threshold})
-        elif path == "/api/metrics":
-            # Return live model metrics
-            self._send_json({
-                "model_name": model_name,
-                "threshold": default_threshold,
-                "pr_auc": 0.9912,
-                "roc_auc": 0.9984,
-                "precision": 0.8025,
-                "recall": 0.9924,
-                "f1": 0.8874,
-                "accuracy": 0.9681,
-                "expected_cost": 42.0,
-                "confusion_matrix": {"tn": 871, "fp": 32, "fn": 1, "tp": 130, "total": 1034}
-            })
-        else:
-            self._send_json({"error": "Endpoint not found"}, status=404)
+class ModelState:
+    pipeline = None
+    threshold = None
+    name = None
+    report = None
+    feature_index = None
+    load_error = None
 
-    def do_POST(self):
-        path = self.path.split("?")[0]
-        if path == "/api/scan":
-            content_len = int(self.headers.get("Content-Length", 0))
-            post_body = self.rfile.read(content_len)
+    def load(self, path: Path):
+        url = os.environ.get("MODEL_URL")
+        if not path.exists() and url:
             try:
-                payload = json.loads(post_body.decode("utf-8"))
-                message = payload.get("message", "").strip()
-                thresh = float(payload.get("threshold", default_threshold))
+                download_model(url, path, os.environ.get("MODEL_SHA256"))
+            except (OSError, ValueError) as exc:
+                self.load_error = f"Could not download the model from MODEL_URL: {exc}"
+                print(f"[PhishGuard] {self.load_error}")
+                return
+        if not path.exists():
+            self.load_error = f"Model file {path} not found. Train it first: {TRAIN_COMMAND}"
+            print(f"[PhishGuard] {self.load_error}")
+            return
+        try:
+            data = joblib.load(path)
+        except Exception as exc:
+            # Typically a model pickled by an older script version.
+            self.load_error = f"Could not load {path} ({exc}). Retrain it: {TRAIN_COMMAND}"
+            print(f"[PhishGuard] {self.load_error}")
+            return
+        self.pipeline = data["pipeline"]
+        self.threshold = float(data["threshold"])
+        self.name = data["model_name"]
+        self.report = data.get("report")
+        self.feature_index = sp.feature_index(self.pipeline)
+        print(f"[PhishGuard] Loaded {self.name} with threshold {self.threshold:.4f}")
 
-                start_time = time.perf_counter()
-                
-                # ML inference if pipeline loaded
-                if pipeline is not None and hasattr(pipeline, "predict_proba"):
-                    prob = float(pipeline.predict_proba([message])[0][1])
-                else:
-                    prob = 0.0042
 
-                risk_score = round(prob * 100, 1)
-                risk_level = sp.get_risk_level(prob)
-                prediction = "FRAUD" if prob >= thresh else "LEGITIMATE"
-                reasons = sp.explain_prediction(message, prob)
-                detected = sp.detect_suspicious_keywords(message)
-                
-                latency = round((time.perf_counter() - start_time) * 1000, 2)
+def download_model(url: str, path: Path, sha256: str | None):
+    import hashlib
+    import urllib.request
 
-                res = {
-                    "id": f"scan-{int(time.time()*1000)}",
-                    "message": message,
-                    "prediction": prediction,
-                    "probability": round(prob, 4),
-                    "riskScore": risk_score,
-                    "riskLevel": risk_level,
-                    "threshold": thresh,
-                    "reasons": reasons,
-                    "detectedCategories": list(detected.keys()),
-                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "latencyMs": latency
-                }
-                self._send_json(res)
-            except Exception as exc:
-                self._send_json({"error": str(exc)}, status=500)
+    print(f"[PhishGuard] Downloading model from {url}")
+    with urllib.request.urlopen(url, timeout=120) as resp:
+        data = resp.read()
+    if sha256 and hashlib.sha256(data).hexdigest() != sha256.lower():
+        raise ValueError("checksum does not match MODEL_SHA256")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".part")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+
+
+class Credentials(BaseModel):
+    email: str
+    password: str
+
+
+class ScanRequest(BaseModel):
+    message: str
+    threshold: float | None = None
+
+
+class ForgotRequest(BaseModel):
+    email: str
+
+
+class ResetRequest(BaseModel):
+    token: str
+    password: str
+
+
+class FeedbackRequest(BaseModel):
+    correctLabel: Literal["fraud", "legit"]
+    note: str | None = None
+
+
+MAX_NOTE_CHARS = 500
+
+
+def create_app(model_path: Path | None = None, database: Database | None = None,
+               extra_origins: list[str] | None = None, cookie_secure: bool | None = None,
+               mail=None, app_url: str | None = None, cookie_samesite: str | None = None) -> FastAPI:
+    model_path = model_path or Path(os.environ.get("MODEL_PATH", "fraud_model.joblib"))
+    database = database or Database()
+    if extra_origins is None:
+        extra_origins = [o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+    if cookie_secure is None:
+        cookie_secure = os.environ.get("COOKIE_SECURE") == "1"
+    cookie_samesite = (cookie_samesite or os.environ.get("COOKIE_SAMESITE", "lax")).lower()
+    if cookie_samesite not in {"lax", "strict", "none"}:
+        raise ValueError(f"COOKIE_SAMESITE must be lax, strict or none; got {cookie_samesite!r}")
+    if cookie_samesite == "none" and not cookie_secure:
+        # Browsers drop SameSite=None cookies that are not Secure, so sign-in would silently fail.
+        raise ValueError("COOKIE_SAMESITE=none requires COOKIE_SECURE=1 (HTTPS)")
+
+    mail = mail or mailer.mailer_from_env()
+    app_url = (app_url or os.environ.get("APP_URL", "http://localhost:3001")).rstrip("/")
+
+    model = ModelState()
+    limiter = auth.LoginRateLimiter()
+    reset_limiter = auth.LoginRateLimiter(max_failures=3, window_seconds=3600)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        model.load(model_path)
+        database.migrate()
+        yield
+
+    app = FastAPI(title="PhishGuard API", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
+
+    origin_regex = "^(" + "|".join([LOCALHOST_ORIGINS] + [re.escape(o) for o in extra_origins]) + ")$"
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=origin_regex,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Content-Type"],
+    )
+
+    # ---------------------------------------------------------------- errors
+    def error_response(err: ApiError) -> JSONResponse:
+        body = {"error": err.message}
+        if err.hint:
+            body["hint"] = err.hint
+        return JSONResponse(body, status_code=err.status, headers=err.headers)
+
+    @app.exception_handler(ApiError)
+    async def handle_api_error(request: Request, err: ApiError):
+        return error_response(err)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def handle_http_error(request: Request, err: StarletteHTTPException):
+        message = {404: f"No endpoint at {request.method} {request.url.path}.",
+                   405: f"{request.method} is not allowed on {request.url.path}."}.get(err.status_code, str(err.detail))
+        return error_response(ApiError(err.status_code, message))
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation_error(request: Request, err: RequestValidationError):
+        first = err.errors()[0]
+        loc = [str(p) for p in first.get("loc", []) if p != "body"]
+        if first.get("type") == "json_invalid":
+            return error_response(ApiError(400, "Request body is not valid JSON."))
+        if not loc:
+            return error_response(ApiError(400, "Request body must be a JSON object."))
+        field = ".".join(loc)
+        if first.get("type") == "missing":
+            return error_response(ApiError(400, f"Field '{field}' is required."))
+        return error_response(ApiError(400, f"Field '{field}' is invalid: {first.get('msg', 'bad value')}."))
+
+    @app.exception_handler(SQLAlchemyError)
+    async def handle_db_error(request: Request, err: SQLAlchemyError):
+        print(f"[PhishGuard] Database error: {err!r}")
+        return error_response(ApiError(503, "The database is unavailable.",
+                                       "Check DATABASE_URL and that the database server is running."))
+
+    @app.middleware("http")
+    async def limit_body(request: Request, call_next):
+        length = request.headers.get("content-length")
+        has_body = (length not in (None, "0")) or "transfer-encoding" in request.headers
+        if request.method == "POST" and has_body:
+            content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
+            if content_type != "application/json":
+                return error_response(ApiError(415, f"Unsupported Content-Type '{content_type or 'none'}'.",
+                                               "Send the body as application/json."))
+            if length is None:
+                return error_response(ApiError(411, "Content-Length header is required."))
+            if not length.isdigit():
+                return error_response(ApiError(400, "Content-Length header is not a number."))
+            if int(length) > MAX_BODY_BYTES:
+                return error_response(ApiError(413, f"Request body is {length} bytes; the limit is "
+                                                    f"{MAX_BODY_BYTES} bytes.", "Scan one SMS at a time."))
+        return await call_next(request)
+
+    # ---------------------------------------------------------- dependencies
+    def get_db():
+        with database.sessionmaker() as session:
+            yield session
+
+    def require_model():
+        if model.pipeline is None:
+            raise ApiError(503, "The fraud model is not loaded.", model.load_error)
+
+    def current_user(db=Depends(get_db),
+                     session_token: Annotated[str | None, Cookie(alias=auth.SESSION_COOKIE)] = None) -> User:
+        if not session_token:
+            raise ApiError(401, "You are not signed in.", "Sign in to scan messages.")
+        row = db.get(AuthSession, auth.hash_token(session_token))
+        if row is None or _aware(row.expires_at) <= datetime.now(timezone.utc):
+            raise ApiError(401, "Your session has expired.", "Sign in again.")
+        user = db.get(User, row.user_id)
+        if user is None:
+            raise ApiError(401, "Your account no longer exists.")
+        return user
+
+    def start_session(db, response: Response, user: User):
+        token, token_hash, expires = auth.new_session_token()
+        db.add(AuthSession(token_hash=token_hash, user_id=user.id, expires_at=expires))
+        db.commit()
+        response.set_cookie(auth.SESSION_COOKIE, token, max_age=int(auth.SESSION_TTL.total_seconds()),
+                            httponly=True, samesite=cookie_samesite, secure=cookie_secure, path="/")
+
+    # ------------------------------------------------------------- endpoints
+    @app.get("/api/health")
+    def health():
+        if model.pipeline is None:
+            return JSONResponse({"status": "model_unavailable", "error": model.load_error}, status_code=503)
+        return {"status": "active", "model": model.name, "threshold": model.threshold,
+                "hasReport": model.report is not None}
+
+    @app.get("/api/metrics")
+    def metrics():
+        require_model()
+        if model.report is None:
+            raise ApiError(503, "The loaded model has no saved evaluation report.",
+                           f"Retrain it: {TRAIN_COMMAND}")
+        return model.report
+
+    @app.post("/api/auth/register", status_code=201)
+    def register(body: Credentials, response: Response, db=Depends(get_db)):
+        email = auth.normalize_email(body.email)
+        problem = auth.validate_credentials(email, body.password)
+        if problem:
+            raise ApiError(400, problem)
+        user = User(email=email, password_hash=auth.hash_password(body.password))
+        db.add(user)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise ApiError(409, "An account with this email already exists.", "Sign in instead.")
+        start_session(db, response, user)
+        return {"email": user.email}
+
+    @app.post("/api/auth/login")
+    def login(body: Credentials, request: Request, response: Response, db=Depends(get_db)):
+        email = auth.normalize_email(body.email)
+        key = f"{request.client.host if request.client else '-'}|{email}"
+        wait = limiter.retry_after(key)
+        if wait:
+            raise ApiError(429, "Too many failed sign-in attempts.",
+                           f"Try again in {max(1, wait // 60)} minute(s).", headers={"Retry-After": str(wait)})
+        user = db.scalar(select(User).where(User.email == email))
+        if not auth.verify_password(body.password, user.password_hash if user else auth.DUMMY_HASH) or user is None:
+            limiter.record_failure(key)
+            raise ApiError(401, "Email or password is incorrect.")
+        limiter.reset(key)
+        start_session(db, response, user)
+        return {"email": user.email}
+
+    @app.post("/api/auth/logout")
+    def logout(response: Response, db=Depends(get_db),
+               session_token: Annotated[str | None, Cookie(alias=auth.SESSION_COOKIE)] = None):
+        if session_token:
+            db.execute(delete(AuthSession).where(AuthSession.token_hash == auth.hash_token(session_token)))
+            db.commit()
+        response.delete_cookie(auth.SESSION_COOKIE, path="/", secure=cookie_secure,
+                               httponly=True, samesite=cookie_samesite)
+        return {"signedOut": True}
+
+    @app.post("/api/auth/forgot", status_code=202)
+    def forgot_password(body: ForgotRequest, request: Request, db=Depends(get_db)):
+        email = auth.normalize_email(body.email)
+        if not auth.EMAIL_RE.match(email):
+            raise ApiError(400, "Enter a valid email address.")
+        key = f"{request.client.host if request.client else '-'}|{email}"
+        wait = reset_limiter.retry_after(key)
+        if wait:
+            raise ApiError(429, "Too many reset requests for this email.",
+                           f"Try again in {max(1, wait // 60)} minute(s).", headers={"Retry-After": str(wait)})
+        reset_limiter.record_failure(key)
+
+        # Same response whether or not the account exists, so this cannot be
+        # used to discover who has an account.
+        user = db.scalar(select(User).where(User.email == email))
+        if user is not None:
+            token, token_hash, expires = auth.new_reset_token()
+            db.add(PasswordReset(token_hash=token_hash, user_id=user.id, expires_at=expires))
+            db.commit()
+            link = f"{app_url}/reset-password?token={token}"
+            try:
+                mail.send(user.email, "Reset your PhishGuard password",
+                          f"Someone asked to reset the password for {user.email}.\n\n"
+                          f"Open this link within 1 hour to choose a new password:\n{link}\n\n"
+                          "If this wasn't you, ignore this email; your password is unchanged.")
+            except mailer.MailError as exc:
+                print(f"[PhishGuard] {exc}")
+                raise ApiError(503, "We couldn't send the reset email.", "Try again later.")
+        return {"message": "If an account exists for that email, we've sent a reset link. It expires in 1 hour."}
+
+    @app.post("/api/auth/reset")
+    def reset_password(body: ResetRequest, response: Response, db=Depends(get_db)):
+        row = db.get(PasswordReset, auth.hash_token(body.token))
+        if row is None or row.used_at is not None or _aware(row.expires_at) <= datetime.now(timezone.utc):
+            raise ApiError(400, "This reset link is invalid or has expired.", "Request a new one.")
+        user = db.get(User, row.user_id)
+        problem = auth.validate_credentials(user.email, body.password)
+        if problem:
+            raise ApiError(400, problem)
+        user.password_hash = auth.hash_password(body.password)
+        row.used_at = datetime.now(timezone.utc)
+        # A reset signs out every existing session.
+        db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+        db.commit()
+        start_session(db, response, user)
+        return {"email": user.email}
+
+    @app.get("/api/auth/me")
+    def me(user: User = Depends(current_user)):
+        return {"email": user.email, "isAdmin": user.is_admin}
+
+    def require_admin(user: User = Depends(current_user)) -> User:
+        if not user.is_admin:
+            raise ApiError(403, "Only admins can see this.",
+                           "An admin can grant access with: python manage.py make-admin EMAIL")
+        return user
+
+    @app.get("/api/admin/stats")
+    def admin_stats(admin: User = Depends(require_admin), db=Depends(get_db)):
+        since = datetime.now(timezone.utc) - timedelta(days=7)
+        recent = db.scalars(select(Scan.created_at).where(Scan.created_at >= since)).all()
+        per_day: dict[str, int] = {}
+        for created in recent:
+            day = _aware(created).astimezone().strftime("%Y-%m-%d")
+            per_day[day] = per_day.get(day, 0) + 1
+        wrong = db.scalar(select(func.count()).select_from(Feedback).join(Scan, Scan.id == Feedback.scan_id)
+                          .where(or_(and_(Scan.prediction == "FRAUD", Feedback.correct_label == "legit"),
+                                     and_(Scan.prediction == "LEGITIMATE", Feedback.correct_label == "fraud"))))
+        return {
+            "users": db.scalar(select(func.count()).select_from(User)),
+            "scans": db.scalar(select(func.count()).select_from(Scan)),
+            "fraudScans": db.scalar(select(func.count()).select_from(Scan).where(Scan.prediction == "FRAUD")),
+            "feedback": db.scalar(select(func.count()).select_from(Feedback)),
+            "reportedWrong": wrong,
+            "scansByDay": [{"date": d, "count": c} for d, c in sorted(per_day.items())],
+            "model": model.name,
+        }
+
+    @app.get("/api/admin/feedback")
+    def admin_feedback(limit: Annotated[int, Query(ge=1, le=500)] = 100,
+                       admin: User = Depends(require_admin), db=Depends(get_db)):
+        rows = db.execute(select(Feedback, Scan).join(Scan, Scan.id == Feedback.scan_id)
+                          .order_by(Feedback.created_at.desc()).limit(limit)).all()
+        return {"items": [{
+            "scanId": f"scan-{scan.id}",
+            # Admins see messages with personal details scrubbed.
+            "message": scrub(scan.message),
+            "predicted": scan.prediction,
+            "probability": scan.probability,
+            "correctLabel": fb.correct_label,
+            "wrong": (scan.prediction == "FRAUD") != (fb.correct_label == "fraud"),
+            "note": fb.note,
+            "createdAt": _timestamp(fb.created_at),
+        } for fb, scan in rows]}
+
+    @app.post("/api/scan")
+    def scan(body: ScanRequest, user: User = Depends(current_user), db=Depends(get_db)):
+        require_model()
+        message = body.message.strip()
+        if not message:
+            raise ApiError(400, "Field 'message' is empty.", "Paste the SMS text to scan.")
+        if len(message) > MAX_MESSAGE_CHARS:
+            raise ApiError(413, f"Message is {len(message)} characters; the limit is {MAX_MESSAGE_CHARS}.",
+                           "Scan one SMS at a time.")
+        threshold = model.threshold if body.threshold is None else body.threshold
+        if not 0 < threshold < 1:
+            raise ApiError(400, f"Field 'threshold' must be between 0 and 1 (exclusive); got {threshold}.")
+
+        try:
+            result = message_analysis.analyze(model.pipeline, message, threshold, model.feature_index)
+        except Exception as exc:
+            print(f"[PhishGuard] Inference failed: {exc!r}")
+            raise ApiError(500, "The model failed to score this message.",
+                           "Check the API server log; retraining may be required.")
+
+        row = Scan(user_id=user.id, message=message, prediction=result["prediction"],
+                   probability=result["probability"], risk_level=result["riskLevel"],
+                   threshold=threshold, model_name=model.name, result=result)
+        db.add(row)
+        db.commit()
+        result["id"] = f"scan-{row.id}"
+        result["timestamp"] = _timestamp(row.created_at)
+        result["feedback"] = None
+        return result
+
+    @app.get("/api/history")
+    def history(limit: Annotated[int, Query(ge=1, le=500)] = 100, offset: Annotated[int, Query(ge=0)] = 0,
+                user: User = Depends(current_user), db=Depends(get_db)):
+        total = db.scalar(select(func.count()).select_from(Scan).where(Scan.user_id == user.id))
+        rows = list(db.scalars(select(Scan).where(Scan.user_id == user.id)
+                               .order_by(Scan.created_at.desc(), Scan.id.desc()).limit(limit).offset(offset)))
+        labels = dict(db.execute(select(Feedback.scan_id, Feedback.correct_label)
+                                 .where(Feedback.scan_id.in_([r.id for r in rows]))).all())
+        return {"total": total, "items": [_history_item(r, labels.get(r.id)) for r in rows]}
+
+    @app.delete("/api/history")
+    def clear_history(user: User = Depends(current_user), db=Depends(get_db)):
+        deleted = db.execute(delete(Scan).where(Scan.user_id == user.id)).rowcount
+        db.commit()
+        return {"deleted": deleted}
+
+    def own_scan(db, user: User, scan_id: int) -> Scan:
+        row = db.get(Scan, scan_id)
+        if row is None or row.user_id != user.id:
+            raise ApiError(404, f"Scan {scan_id} not found.")
+        return row
+
+    @app.post("/api/scans/{scan_id}/feedback")
+    def give_feedback(scan_id: int, body: FeedbackRequest, user: User = Depends(current_user), db=Depends(get_db)):
+        own_scan(db, user, scan_id)
+        note = (body.note or "").strip() or None
+        if note and len(note) > MAX_NOTE_CHARS:
+            raise ApiError(413, f"Note is {len(note)} characters; the limit is {MAX_NOTE_CHARS}.")
+        row = db.scalar(select(Feedback).where(Feedback.scan_id == scan_id))
+        if row is None:
+            row = Feedback(scan_id=scan_id, user_id=user.id, correct_label=body.correctLabel, note=note)
+            db.add(row)
         else:
-            self._send_json({"error": "Endpoint not found"}, status=404)
+            row.correct_label, row.note = body.correctLabel, note
+        db.commit()
+        return {"scanId": f"scan-{scan_id}", "correctLabel": row.correct_label, "note": row.note}
+
+    @app.delete("/api/scans/{scan_id}/feedback")
+    def remove_feedback(scan_id: int, user: User = Depends(current_user), db=Depends(get_db)):
+        own_scan(db, user, scan_id)
+        deleted = db.execute(delete(Feedback).where(Feedback.scan_id == scan_id)).rowcount
+        db.commit()
+        return {"deleted": deleted}
+
+    @app.delete("/api/history/{scan_id}")
+    def delete_scan(scan_id: int, user: User = Depends(current_user), db=Depends(get_db)):
+        row = db.get(Scan, scan_id)
+        if row is None or row.user_id != user.id:
+            raise ApiError(404, f"Scan {scan_id} not found.")
+        db.delete(row)
+        db.commit()
+        return {"deleted": 1}
+
+    return app
+
+
+def _aware(dt: datetime) -> datetime:
+    # SQLite returns naive datetimes; they were stored as UTC.
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _timestamp(dt: datetime) -> str:
+    return _aware(dt).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _history_item(row: Scan, feedback: str | None = None) -> dict:
+    result = dict(row.result, id=f"scan-{row.id}", timestamp=_timestamp(row.created_at), feedback=feedback)
+    return {
+        "id": result["id"],
+        "timestamp": result["timestamp"],
+        "message": row.message,
+        "prediction": row.prediction,
+        "riskLevel": row.risk_level,
+        "riskScore": result["riskScore"],
+        "probability": row.probability,
+        "confidence": round(max(row.probability, 1 - row.probability) * 100, 1),
+        "reasonsCount": len(result.get("reasons", [])),
+        "topReason": (result.get("reasons") or [None])[0],
+        "detectedCategories": [s["category"] for s in result.get("detectedSignals", [])],
+        "feedback": feedback,
+        "result": result,
+    }
+
 
 def main():
-    parser = argparse.ArgumentParser(description="PhishGuard Python API Bridge")
+    import uvicorn
+
+    parser = argparse.ArgumentParser(description="PhishGuard API")
     parser.add_argument("--port", type=int, default=8000, help="Port to serve on (default: 8000)")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="Interface to bind (default: 127.0.0.1; use 0.0.0.0 to expose)")
+    parser.add_argument("--model", type=Path, default=None, help="model file (default: $MODEL_PATH or fraud_model.joblib)")
+    parser.add_argument("--allow-origin", action="append", default=None,
+                        help="Extra CORS origin to allow (repeatable); localhost is always allowed")
     args = parser.parse_args()
 
-    load_ml_model()
-    server = HTTPServer(("0.0.0.0", args.port), PhishGuardAPIHandler)
-    print(f"[PhishGuard] Python API Bridge running at http://localhost:{args.port}")
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n[PhishGuard] Server stopped.")
+        app = create_app(model_path=args.model, extra_origins=args.allow_origin)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

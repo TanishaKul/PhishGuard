@@ -4,22 +4,15 @@ import React, { useState } from 'react';
 import {
   ScanLine,
   Eraser,
-  Sparkles,
-  ShieldAlert,
-  ShieldCheck,
-  AlertTriangle,
   Radio,
-  FileText,
-  Copy,
-  Check,
   Zap,
-  Info,
-  Layers,
   Terminal,
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { ScanResultCard } from '@/components/ui/ScanResultCard';
-import { scanMessage } from '@/lib/api';
+import { ApiErrorPanel } from '@/components/ui/ApiErrorPanel';
+import { ApiError, scanMessage } from '@/lib/api';
+import { useApiHealth } from '@/lib/hooks';
 import { ScanResult } from '@/lib/types';
 
 const PRESET_EXAMPLES = [
@@ -59,10 +52,12 @@ const SCAN_STEPS = [
   'Preserving entity tokens (<url>, <phone>, <cur>, <shortcode>)...',
   'Vectorizing word n-grams (1-2) & character n-grams (3-5)...',
   'Calculating 12 handcrafted fraud heuristics (uppercase, digits, urgency)...',
-  'Computing calibrated probability via LinearSVC decision boundary...',
+  'Computing calibrated fraud probability...',
 ];
 
-export function AnalyzeView() {
+export default function AnalyzePage() {
+  const { health } = useApiHealth();
+  const [error, setError] = useState<ApiError | null>(null);
   const [message, setMessage] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [scanStepIndex, setScanStepIndex] = useState(0);
@@ -76,6 +71,7 @@ export function AnalyzeView() {
 
     setIsScanning(true);
     setResult(null);
+    setError(null);
     setScanStepIndex(0);
 
     // Step animation sequence
@@ -84,10 +80,9 @@ export function AnalyzeView() {
     }, 180);
 
     try {
-      const scanRes = await scanMessage(message);
-      // Ensure at least 750ms so user sees scanning telemetry
-      await new Promise((r) => setTimeout(r, 750));
-      setResult(scanRes);
+      setResult(await scanMessage(message));
+    } catch (err) {
+      setError(err instanceof ApiError ? err : new ApiError(String(err), 0));
     } finally {
       clearInterval(stepInterval);
       setIsScanning(false);
@@ -97,6 +92,7 @@ export function AnalyzeView() {
   const handleClear = () => {
     setMessage('');
     setResult(null);
+    setError(null);
   };
 
   const handleApplyPreset = (text: string) => {
@@ -113,9 +109,11 @@ export function AnalyzeView() {
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-400">
               Interactive Diagnostic Console
             </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
-              Threshold 4.17%
-            </span>
+            {health && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
+                Threshold {(health.threshold * 100).toFixed(2)}%
+              </span>
+            )}
           </div>
           <h2 className="text-xl font-bold text-slate-100">SMS Threat Intelligence Scanner</h2>
           <p className="text-xs text-slate-400">
@@ -240,6 +238,8 @@ export function AnalyzeView() {
                 {SCAN_STEPS[scanStepIndex]}
               </p>
             </div>
+          ) : error ? (
+            <ApiErrorPanel error={error} onRetry={handleScan} />
           ) : result ? (
             /* Result Card */
             <ScanResultCard result={result} onReset={handleClear} />
@@ -261,6 +261,3 @@ export function AnalyzeView() {
   );
 }
 
-export default function AnalyzePage() {
-  return <AnalyzeView />;
-}

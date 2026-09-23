@@ -2,18 +2,9 @@
 
 import React, { useState } from 'react';
 import {
-  Cpu,
-  ShieldAlert,
-  ShieldCheck,
   AlertTriangle,
   Scale,
-  CheckCircle2,
   XCircle,
-  HelpCircle,
-  TrendingUp,
-  BarChart3,
-  Layers,
-  Info,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -22,19 +13,72 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Cell,
 } from 'recharts';
 import { AppShell } from '@/components/layout/AppShell';
-import { getErrorAnalysis, getModelComparisons, getModelMetrics } from '@/lib/api';
-import { ErrorAnalysisData, ModelComparisonItem, ModelMetrics } from '@/lib/types';
+import { ApiErrorPanel, LoadingPanel } from '@/components/ui/ApiErrorPanel';
+import { useModelReport } from '@/lib/hooks';
+import { ErrorAnalysisItem, FeatureContribution } from '@/lib/types';
+
+function DriverList({ label, drivers, tone }: { label: string; drivers: FeatureContribution[]; tone: 'rose' | 'emerald' }) {
+  if (drivers.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+      <span className="text-slate-400">{label}</span>
+      {drivers.map((d) => (
+        <span
+          key={d.term}
+          className={`font-mono px-1.5 py-0.5 rounded border ${
+            tone === 'rose'
+              ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+              : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+          }`}
+        >
+          {d.term} {d.weight > 0 ? '+' : ''}
+          {d.weight.toFixed(2)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ErrorCard({ item, threshold, tone }: { item: ErrorAnalysisItem; threshold: number; tone: 'rose' | 'amber' }) {
+  return (
+    <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+      <div className="flex items-center justify-between text-xs font-mono">
+        <span className={`${tone === 'rose' ? 'text-rose-400' : 'text-amber-400'} font-bold`}>
+          Actual: {item.actual} • Predicted: {item.predicted}
+        </span>
+        <span className="text-slate-400">
+          Score: {item.score.toFixed(3)} (Thr: {threshold.toFixed(3)})
+        </span>
+      </div>
+      <p className="text-xs text-slate-200 font-sans italic bg-slate-900 p-2.5 rounded-lg border border-slate-800 break-words">
+        &quot;{item.message}&quot;
+      </p>
+      <DriverList label="Pushed toward fraud:" drivers={item.fraudDrivers} tone="rose" />
+      <DriverList label="Pushed toward legit:" drivers={item.legitimateDrivers} tone="emerald" />
+    </div>
+  );
+}
 
 export default function ModelPerformancePage() {
-  const [metrics] = useState<ModelMetrics>(getModelMetrics());
-  const [comparisons] = useState<ModelComparisonItem[]>(getModelComparisons());
-  const [errors] = useState<ErrorAnalysisData>(getErrorAnalysis());
+  const { report, error, retry } = useModelReport();
   const [activeTab, setActiveTab] = useState<'METRICS' | 'COMPARISON' | 'ERRORS'>('METRICS');
 
+  if (!report) {
+    return (
+      <AppShell>
+        {error ? <ApiErrorPanel error={error} onRetry={retry} /> : <LoadingPanel label="Loading evaluation report..." />}
+      </AppShell>
+    );
+  }
+
+  const { metrics, comparisons, errorAnalysis: errors } = report;
   const { tn, fp, fn, tp, total } = metrics.confusionMatrix;
+  const legitTotal = tn + fp;
+  const fraudTotal = tp + fn;
+  const costFn = metrics.costFnWeight;
+  const costFp = metrics.costFpWeight;
 
   const compareChartData = comparisons.map((c) => ({
     name: c.name.split(' ')[0],
@@ -56,12 +100,13 @@ export default function ModelPerformancePage() {
               Hold-Out Test Evaluation
             </span>
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
-              1,034 Test Samples
+              {total.toLocaleString()} Test Samples
             </span>
           </div>
           <h2 className="text-xl font-bold text-slate-100">Model Evaluation & Error Diagnostics</h2>
           <p className="text-xs text-slate-400">
-            Rigorous evaluation under class imbalance (~12.6% fraud rate) and asymmetric 10:1 cost optimization.
+            Held-out evaluation under class imbalance ({(metrics.fraudRateTest * 100).toFixed(1)}% fraud rate) with a
+            {' '}{costFn}:{costFp} cost ratio. Model and threshold were chosen by cross-validation on the training split only.
           </p>
         </div>
 
@@ -71,7 +116,7 @@ export default function ModelPerformancePage() {
             [
               { id: 'METRICS', label: 'KPIs & Confusion Matrix' },
               { id: 'COMPARISON', label: 'Model Benchmarking' },
-              { id: 'ERRORS', label: 'Error Analysis (Judges)' },
+              { id: 'ERRORS', label: 'Error Analysis' },
             ] as const
           ).map((t) => (
             <button
@@ -123,7 +168,9 @@ export default function ModelPerformancePage() {
               <div className="text-2xl font-black font-mono text-emerald-400">
                 {(metrics.recall * 100).toFixed(2)}%
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">130 of 131 caught</span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                {tp} of {fraudTotal} caught
+              </span>
             </div>
 
             {/* Precision */}
@@ -134,7 +181,9 @@ export default function ModelPerformancePage() {
               <div className="text-2xl font-black font-mono text-slate-100">
                 {(metrics.precision * 100).toFixed(2)}%
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">80.2% positive predictive</span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                {tp} of {tp + fp} flags correct
+              </span>
             </div>
 
             {/* F1 Score */}
@@ -156,7 +205,9 @@ export default function ModelPerformancePage() {
               <div className="text-2xl font-black font-mono text-amber-400">
                 {metrics.expectedCost.toFixed(1)}
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">10×FN + 1×FP</span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                {costFn}×FN + {costFp}×FP
+              </span>
             </div>
           </div>
 
@@ -168,11 +219,11 @@ export default function ModelPerformancePage() {
                 <div>
                   <h3 className="text-sm font-bold text-slate-100">Test Set Confusion Matrix</h3>
                   <p className="text-xs text-slate-400">
-                    Evaluated on 1,034 held-out SMS messages (903 Legit, 131 Fraud)
+                    Evaluated on {total.toLocaleString()} held-out SMS messages ({legitTotal} Legit, {fraudTotal} Fraud)
                   </p>
                 </div>
                 <span className="text-xs font-mono text-cyan-400 bg-cyan-950/60 px-2.5 py-1 rounded border border-cyan-800">
-                  Threshold: 0.0417
+                  Threshold: {metrics.threshold.toFixed(4)}
                 </span>
               </div>
 
@@ -198,14 +249,14 @@ export default function ModelPerformancePage() {
                   <div className="text-3xl font-black text-amber-400">{fp}</div>
                   <span className="text-[11px] text-slate-400">False Alarms</span>
                   <span className="text-[10px] text-slate-500 block mt-1">
-                    Cost penalty: {fp} × 1.0 = {fp}
+                    Cost penalty: {fp} × {costFp} = {fp * costFp}
                   </span>
                 </div>
 
                 {/* False Negative */}
                 <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-500/50 text-center relative overflow-hidden">
                   <div className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-rose-900 text-rose-300 text-[9px] font-bold">
-                    Cost 10x
+                    Cost {costFn / costFp}x
                   </div>
                   <span className="text-[10px] uppercase font-bold text-rose-400 block mb-1">
                     False Negative (FN)
@@ -213,7 +264,7 @@ export default function ModelPerformancePage() {
                   <div className="text-3xl font-black text-rose-400">{fn}</div>
                   <span className="text-[11px] text-slate-400">Missed Smishing Attack</span>
                   <span className="text-[10px] text-slate-500 block mt-1">
-                    Cost penalty: {fn} × 10.0 = {fn * 10}
+                    Cost penalty: {fn} × {costFn} = {fn * costFn}
                   </span>
                 </div>
 
@@ -239,29 +290,31 @@ export default function ModelPerformancePage() {
                   <h3 className="text-sm font-bold text-slate-100">Why Cost-Sensitive Triage?</h3>
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed mb-3">
-                  In SMS fraud detection, standard accuracy is misleading because legitimate messages represent ~87.4% of traffic.
+                  Accuracy is misleading here because legitimate messages are{' '}
+                  {((1 - metrics.fraudRateTest) * 100).toFixed(1)}% of the test data.
                 </p>
                 <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Cost of Missed Fraud (FN):</span>
-                    <span className="text-rose-400 font-bold">10.0x</span>
+                    <span className="text-rose-400 font-bold">{costFn}x</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Cost of False Alarm (FP):</span>
-                    <span className="text-amber-400 font-bold">1.0x</span>
+                    <span className="text-amber-400 font-bold">{costFp}x</span>
                   </div>
                   <div className="pt-2 border-t border-slate-800 flex justify-between font-bold">
                     <span className="text-slate-200">Total Expected Cost:</span>
                     <span className="text-cyan-400">
-                      (10 × {fn}) + (1 × {fp}) = {metrics.expectedCost}
+                      ({costFn} × {fn}) + ({costFp} × {fp}) = {metrics.expectedCost}
                     </span>
                   </div>
                 </div>
               </div>
 
               <div className="p-3 rounded-xl bg-cyan-950/20 border border-cyan-500/30 text-xs text-cyan-300">
-                <span className="font-bold block mb-1">Defense Rationale:</span>
-                The 0.0417 operating threshold intentionally trades 32 mild false alarms to ensure 99.24% of attacks are neutralized.
+                <span className="font-bold block mb-1">Threshold rationale:</span>
+                The {metrics.threshold.toFixed(4)} threshold minimised expected cost on out-of-fold training predictions.
+                On the test split it produces {fp} false alarms and misses {fn} of {fraudTotal} frauds.
               </div>
             </div>
           </div>
@@ -275,7 +328,7 @@ export default function ModelPerformancePage() {
             <div className="p-5 border-b border-slate-800">
               <h3 className="text-sm font-bold text-slate-100">Cross-Validated Classifier Benchmark</h3>
               <p className="text-xs text-slate-400">
-                Stratified 5-Fold Cross-Validation on training split with identical feature pipelines.
+                Stratified 5-fold cross-validation on the training split selects the model; test columns are reported only.
               </p>
             </div>
 
@@ -285,6 +338,7 @@ export default function ModelPerformancePage() {
                   <tr>
                     <th className="py-3 px-4">Model Architecture</th>
                     <th className="py-3 px-4">CV PR-AUC</th>
+                    <th className="py-3 px-4">Threshold</th>
                     <th className="py-3 px-4">Test PR-AUC</th>
                     <th className="py-3 px-4">Test ROC-AUC</th>
                     <th className="py-3 px-4">Recall</th>
@@ -306,7 +360,7 @@ export default function ModelPerformancePage() {
                           <span>{c.name}</span>
                           {c.isBest && (
                             <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500 text-slate-950 font-bold uppercase">
-                              Production Choice
+                              Selected
                             </span>
                           )}
                         </div>
@@ -314,6 +368,7 @@ export default function ModelPerformancePage() {
                       <td className="py-3.5 px-4 text-cyan-400 font-bold">
                         {(c.cvPrAuc * 100).toFixed(2)}%
                       </td>
+                      <td className="py-3.5 px-4 text-slate-300">{c.threshold.toFixed(4)}</td>
                       <td className="py-3.5 px-4 text-emerald-400 font-bold">
                         {(c.testPrAuc * 100).toFixed(2)}%
                       </td>
@@ -331,9 +386,9 @@ export default function ModelPerformancePage() {
                       </td>
                       <td className="py-3.5 px-4 text-right">
                         {c.isBest ? (
-                          <span className="text-emerald-400 font-bold">Optimal</span>
+                          <span className="text-emerald-400 font-bold">Best CV PR-AUC</span>
                         ) : (
-                          <span className="text-slate-500">Baseline</span>
+                          <span className="text-slate-500">Candidate</span>
                         )}
                       </td>
                     </tr>
@@ -379,35 +434,19 @@ export default function ModelPerformancePage() {
               <div className="flex items-center gap-2">
                 <XCircle className="w-5 h-5 text-rose-400" />
                 <h3 className="text-sm font-bold text-slate-100">
-                  Missed Fraud Samples (False Negatives — {errors.falseNegativesCount} Total)
+                  Missed Fraud (False Negatives — {errors.falseNegativesCount} Total)
                 </h3>
               </div>
               <span className="text-xs font-mono text-rose-400 font-bold bg-rose-950 px-2.5 py-1 rounded border border-rose-800">
-                0.76% Error Rate
+                {fraudTotal ? ((fn / fraudTotal) * 100).toFixed(2) : '0.00'}% of fraud missed
               </span>
             </div>
             <p className="text-xs text-slate-300">
-              Judges frequently ask what the model fails on. Here is the single missed smishing attack from the test set:
+              Real test-split messages, lowest scores first. Chips show the features that moved each score.
             </p>
-
             <div className="space-y-3">
               {errors.falseNegatives.map((item) => (
-                <div
-                  key={item.id}
-                  className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2"
-                >
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-rose-400 font-bold">Actual: FRAUD • Predicted: LEGIT</span>
-                    <span className="text-slate-400">Score: {item.score} (Thr: 0.0417)</span>
-                  </div>
-                  <p className="text-xs text-slate-200 font-sans italic bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-                    &quot;{item.message}&quot;
-                  </p>
-                  <div className="text-xs text-slate-400">
-                    <span className="font-semibold text-slate-300">Diagnostic Root Cause:</span>{' '}
-                    {item.whyMissedOrAlarm}
-                  </div>
-                </div>
+                <ErrorCard key={item.message} item={item} threshold={metrics.threshold} tone="rose" />
               ))}
             </div>
           </div>
@@ -422,31 +461,15 @@ export default function ModelPerformancePage() {
                 </h3>
               </div>
               <span className="text-xs font-mono text-amber-400 font-bold bg-amber-950 px-2.5 py-1 rounded border border-amber-800">
-                3.1% Alarm Rate
+                {legitTotal ? ((fp / legitTotal) * 100).toFixed(2) : '0.00'}% of legit flagged
               </span>
             </div>
             <p className="text-xs text-slate-300">
-              Legitimate messages containing words commonly weaponized by phishers (e.g. &quot;bank&quot;, &quot;urgent&quot;, &quot;free&quot;):
+              Real legitimate test-split messages the model flagged, highest scores first.
             </p>
-
             <div className="space-y-3">
               {errors.falsePositives.map((item) => (
-                <div
-                  key={item.id}
-                  className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2"
-                >
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-amber-400 font-bold">Actual: LEGIT • Predicted: FRAUD</span>
-                    <span className="text-slate-400">Score: {item.score}</span>
-                  </div>
-                  <p className="text-xs text-slate-200 font-sans italic bg-slate-900 p-2.5 rounded-lg border border-slate-800">
-                    &quot;{item.message}&quot;
-                  </p>
-                  <div className="text-xs text-slate-400">
-                    <span className="font-semibold text-slate-300">Diagnostic Root Cause:</span>{' '}
-                    {item.whyMissedOrAlarm}
-                  </div>
-                </div>
+                <ErrorCard key={item.message} item={item} threshold={metrics.threshold} tone="amber" />
               ))}
             </div>
           </div>

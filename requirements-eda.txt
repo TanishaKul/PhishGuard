@@ -1,0 +1,5 @@
+# Plots for eda.py (spamham_project_v3.py --eda)
+-r requirements.txt
+seaborn
+matplotlib
+wordcloud

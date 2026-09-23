@@ -6,3 +6,6 @@ __pycache__/
 *.joblib
 .venv/
 venv/
+model_report.json
+data/
+!eval/*.csv

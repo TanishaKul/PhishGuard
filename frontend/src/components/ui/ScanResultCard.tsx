@@ -8,17 +8,15 @@ import {
   ChevronDown,
   ChevronUp,
   Cpu,
-  Layers,
   CheckCircle2,
   Copy,
   Check,
   Info,
   Clock,
-  ExternalLink,
   Flame,
-  Radio,
 } from 'lucide-react';
-import { ScanResult } from '@/lib/types';
+import { ApiError, removeFeedback, sendFeedback } from '@/lib/api';
+import { FeedbackLabel, ScanResult } from '@/lib/types';
 import { GaugeChart } from './GaugeChart';
 
 interface ScanResultCardProps {
@@ -28,11 +26,34 @@ interface ScanResultCardProps {
 
 export function ScanResultCard({ result, onReset }: ScanResultCardProps) {
   const [copied, setCopied] = useState(false);
-  const [whyExpanded, setWhyExpanded] = useState(true);
+  const [driversExpanded, setDriversExpanded] = useState(true);
+  const [whyExpanded, setWhyExpanded] = useState(false);
   const [signalsExpanded, setSignalsExpanded] = useState(true);
   const [featuresExpanded, setFeaturesExpanded] = useState(false);
 
   const isFraud = result.prediction === 'FRAUD';
+  const [feedback, setFeedback] = useState<FeedbackLabel | null>(result.feedback ?? null);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const predictedLabel: FeedbackLabel = isFraud ? 'fraud' : 'legit';
+
+  const handleFeedback = async (label: FeedbackLabel) => {
+    setFeedbackBusy(true);
+    setFeedbackError(null);
+    try {
+      if (feedback === label) {
+        await removeFeedback(result.id);
+        setFeedback(null);
+      } else {
+        await sendFeedback(result.id, label);
+        setFeedback(label);
+      }
+    } catch (err) {
+      setFeedbackError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
 
   const handleCopy = () => {
     const text = `PHISHGUARD SCAN REPORT
@@ -40,7 +61,8 @@ Verdict: ${result.prediction}
 Risk Level: ${result.riskLevel} (${result.riskScore}% risk)
 Probability: ${(result.probability * 100).toFixed(2)}% (Threshold: ${(result.threshold * 100).toFixed(2)}%)
 Message: "${result.message}"
-Reasons:
+Model drivers toward fraud: ${result.modelContributions.fraud.map((d) => d.term).join(', ') || 'none'}
+Rule-based indicators:
 ${result.reasons.map((r) => ` - ${r}`).join('\n')}
 Recommended Action: ${result.recommendedAction.action}`;
 
@@ -217,8 +239,73 @@ Recommended Action: ${result.recommendedAction.action}`;
         </div>
       </div>
 
-      {/* Expandable Section 1: "Why was this flagged?" */}
+      {/* Expandable Section 0: the model's own reasons */}
       <div className="mt-5 border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
+        <button
+          onClick={() => setDriversExpanded(!driversExpanded)}
+          className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-900/60 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Cpu className="w-4 h-4 text-cyan-400" />
+            <span className="text-xs font-bold text-slate-200 uppercase tracking-wider font-mono">
+              What drove the model&apos;s score?
+            </span>
+          </div>
+          {driversExpanded ? (
+            <ChevronUp className="w-4 h-4 text-slate-400" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-slate-400" />
+          )}
+        </button>
+
+        {driversExpanded && (
+          <div className="px-4 pb-4 pt-2 border-t border-slate-800/80 space-y-3">
+            <p className="text-[11px] text-slate-400">
+              Each value is that feature&apos;s exact share of the linear model&apos;s decision score for this message.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(
+                [
+                  { label: 'Toward fraud', items: result.modelContributions.fraud, tone: 'rose' },
+                  { label: 'Toward legitimate', items: result.modelContributions.legitimate, tone: 'emerald' },
+                ] as const
+              ).map((col) => (
+                <div key={col.label} className="space-y-1.5">
+                  <span
+                    className={`text-[10px] uppercase font-mono font-bold ${
+                      col.tone === 'rose' ? 'text-rose-400' : 'text-emerald-400'
+                    }`}
+                  >
+                    {col.label}
+                  </span>
+                  {col.items.length === 0 ? (
+                    <p className="text-[11px] text-slate-500">None</p>
+                  ) : (
+                    col.items.map((d) => (
+                      <div
+                        key={`${d.kind}-${d.term}`}
+                        className="flex items-center justify-between gap-2 text-[11px] font-mono bg-slate-950/60 px-2 py-1 rounded border border-slate-800/80"
+                      >
+                        <span className="text-slate-200 truncate" title={d.term}>
+                          {d.term}
+                          <span className="text-slate-500 ml-1.5">{d.kind}</span>
+                        </span>
+                        <span className={col.tone === 'rose' ? 'text-rose-300' : 'text-emerald-300'}>
+                          {d.weight > 0 ? '+' : ''}
+                          {d.weight.toFixed(3)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Expandable Section 1: rule-based indicators */}
+      <div className="mt-4 border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40">
         <button
           onClick={() => setWhyExpanded(!whyExpanded)}
           className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-900/60 transition-colors"
@@ -226,7 +313,7 @@ Recommended Action: ${result.recommendedAction.action}`;
           <div className="flex items-center gap-2">
             <Info className="w-4 h-4 text-cyan-400" />
             <span className="text-xs font-bold text-slate-200 uppercase tracking-wider font-mono">
-              Why was this {isFraud ? 'flagged as fraud' : 'verified as legitimate'}?
+              Rule-based indicators
             </span>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono">
               {result.reasons.length} {result.reasons.length === 1 ? 'Rule' : 'Rules'}
@@ -241,6 +328,9 @@ Recommended Action: ${result.recommendedAction.action}`;
 
         {whyExpanded && (
           <div className="px-4 pb-4 pt-1 space-y-2 border-t border-slate-800/80">
+            <p className="text-[11px] text-slate-400 pt-1">
+              Keyword and entity rules found in the text. These do not decide the verdict.
+            </p>
             {result.reasons.map((reason, idx) => (
               <div
                 key={idx}
@@ -371,7 +461,7 @@ Recommended Action: ${result.recommendedAction.action}`;
             {/* Extracted Tokens */}
             <div>
               <span className="text-[11px] text-slate-400 font-mono block mb-1.5">
-                TF-IDF Extracted Word Tokens:
+                Normalised word tokens (first 12):
               </span>
               <div className="flex flex-wrap gap-1.5">
                 {result.modelFeatures.wordTokens.map((token, idx) => (
@@ -386,6 +476,48 @@ Recommended Action: ${result.recommendedAction.action}`;
             </div>
           </div>
         )}
+      </div>
+
+      {/* Feedback: was the verdict right? */}
+      <div className="mt-5 p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-xs text-slate-300">
+          {feedback === null ? (
+            'Was this result right?'
+          ) : feedback === predictedLabel ? (
+            <span className="text-emerald-400">Thanks — you confirmed this result.</span>
+          ) : (
+            <span className="text-amber-400">
+              Thanks — reported as {feedback === 'fraud' ? 'fraud' : 'legitimate'}. It will be used to retrain the model.
+            </span>
+          )}
+          {feedbackError && <span className="block text-rose-400 mt-1">{feedbackError}</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleFeedback(predictedLabel)}
+            disabled={feedbackBusy}
+            aria-pressed={feedback === predictedLabel}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${
+              feedback === predictedLabel
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+            }`}
+          >
+            Correct
+          </button>
+          <button
+            onClick={() => handleFeedback(isFraud ? 'legit' : 'fraud')}
+            disabled={feedbackBusy}
+            aria-pressed={feedback !== null && feedback !== predictedLabel}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${
+              feedback !== null && feedback !== predictedLabel
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+            }`}
+          >
+            Wrong — it&apos;s {isFraud ? 'legitimate' : 'fraud'}
+          </button>
+        </div>
       </div>
 
       {/* Footer Action Bar */}

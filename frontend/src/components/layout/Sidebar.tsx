@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useApiHealth, useSession } from '@/lib/hooks';
 import {
   ShieldAlert,
   LayoutDashboard,
@@ -12,8 +13,8 @@ import {
   Tag,
   Cpu,
   Settings,
-  ShieldCheck,
   ChevronRight,
+  ShieldCheck,
   Radio,
 } from 'lucide-react';
 
@@ -22,51 +23,47 @@ const NAV_ITEMS = [
     name: 'Dashboard',
     href: '/dashboard',
     icon: LayoutDashboard,
-    badge: null,
   },
   {
     name: 'Analyze',
     href: '/analyze',
     icon: ScanLine,
-    badge: 'Live',
-    badgeColor: 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30',
   },
   {
     name: 'Scan History',
     href: '/history',
     icon: History,
-    badge: null,
   },
   {
     name: 'Threat Analytics',
     href: '/analytics',
     icon: BarChart3,
-    badge: null,
   },
   {
     name: 'Fraud Indicators',
     href: '/indicators',
     icon: Tag,
-    badge: 'Top 30',
-    badgeColor: 'bg-rose-500/20 text-rose-400 border border-rose-500/30',
   },
   {
     name: 'Model Performance',
     href: '/model-performance',
     icon: Cpu,
-    badge: '99.1% PR',
-    badgeColor: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30',
   },
   {
     name: 'Settings',
     href: '/settings',
     icon: Settings,
-    badge: null,
   },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { health, error: healthError } = useApiHealth();
+  const session = useSession();
+  const navItems =
+    session.status === 'signed-in' && session.user.isAdmin
+      ? [...NAV_ITEMS, { name: 'Admin', href: '/admin', icon: ShieldCheck }]
+      : NAV_ITEMS;
 
   return (
     <aside className="w-64 bg-[#090d16]/95 border-r border-slate-800/80 flex flex-col shrink-0 h-screen sticky top-0 z-30 select-none">
@@ -95,7 +92,7 @@ export function Sidebar() {
         <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
           Core Platform
         </div>
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const isActive = pathname === item.href || (item.href === '/dashboard' && pathname === '/');
           const Icon = item.icon;
 
@@ -118,11 +115,6 @@ export function Sidebar() {
                 <span>{item.name}</span>
               </div>
               <div className="flex items-center gap-1.5">
-                {item.badge && (
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${item.badgeColor}`}>
-                    {item.badge}
-                  </span>
-                )}
                 {isActive && <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />}
               </div>
             </Link>
@@ -134,29 +126,37 @@ export function Sidebar() {
       <div className="p-3 m-3 rounded-xl bg-slate-900/80 border border-slate-800/90 shadow-inner">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5">
-            <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-            <span className="text-[11px] font-semibold text-slate-200">Model Engine</span>
+            <Radio className={`w-3.5 h-3.5 ${health ? 'text-emerald-400 animate-pulse' : 'text-rose-400'}`} />
+            <span className="text-[11px] font-semibold text-slate-200">Model API</span>
           </div>
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-            Active
+          <span
+            className={`text-[10px] px-1.5 py-0.5 rounded font-mono border ${
+              health
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+            }`}
+          >
+            {health ? 'Online' : healthError ? 'Offline' : 'Checking'}
           </span>
         </div>
-        <div className="space-y-1 text-[11px] text-slate-400 font-mono">
-          <div className="flex justify-between">
-            <span className="text-slate-400">Pipeline:</span>
-            <span className="text-slate-300 font-sans truncate max-w-[100px]" title="LinearSVC (calibrated)">
-              LinearSVC
-            </span>
+        {health ? (
+          <div className="space-y-1 text-[11px] text-slate-400 font-mono">
+            <div className="flex justify-between">
+              <span className="text-slate-400">Pipeline:</span>
+              <span className="text-slate-300 font-sans truncate max-w-[120px]" title={health.model}>
+                {health.model}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Threshold:</span>
+              <span className="text-cyan-400 font-semibold">{health.threshold.toFixed(4)}</span>
+            </div>
           </div>
-          <div className="flex justify-between">
-            <span className="text-slate-400">Threshold:</span>
-            <span className="text-cyan-400 font-semibold">0.0417</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-400">PR-AUC:</span>
-            <span className="text-emerald-400 font-semibold">0.9912</span>
-          </div>
-        </div>
+        ) : (
+          healthError && (
+            <p className="text-[11px] text-slate-400 leading-snug break-words">{healthError.message}</p>
+          )
+        )}
       </div>
     </aside>
   );

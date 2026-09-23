@@ -2,15 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  BarChart3,
-  TrendingUp,
-  ShieldAlert,
-  ShieldCheck,
-  Activity,
-  Calendar,
-  Layers,
-  Flame,
-  Zap,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -24,20 +15,33 @@ import {
   PieChart,
   Pie,
   Cell,
-  Legend,
 } from 'recharts';
 import { AppShell } from '@/components/layout/AppShell';
-import { getAnalyticsData } from '@/lib/api';
+import { ApiError, getAnalyticsData, getScanHistory } from '@/lib/api';
+import { ApiErrorPanel, LoadingPanel } from '@/components/ui/ApiErrorPanel';
 import { AnalyticsData } from '@/lib/types';
 
 export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
 
-  useEffect(() => {
-    setData(getAnalyticsData());
-  }, []);
+  const [error, setError] = useState<ApiError | null>(null);
 
-  if (!data) return null;
+  const load = () => {
+    setError(null);
+    getScanHistory()
+      .then((items) => setData(getAnalyticsData(items)))
+      .catch((err) => setError(err instanceof ApiError ? err : new ApiError(String(err), 0)));
+  };
+
+  useEffect(load, []);
+
+  if (!data) {
+    return (
+      <AppShell>
+        {error ? <ApiErrorPanel error={error} onRetry={load} /> : <LoadingPanel label="Loading your scan history..." />}
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -54,10 +58,16 @@ export default function AnalyticsPage() {
           </div>
           <h2 className="text-xl font-bold text-slate-100">Threat Analytics & Longitudinal Trends</h2>
           <p className="text-xs text-slate-400">
-            Real-time attack vector trends, severity distribution histograms, and signal trigger frequencies across evaluated messages.
+            Trends, severity distribution and signal frequencies computed from your scan history.
           </p>
         </div>
       </div>
+
+      {data.totalScans === 0 && (
+        <div className="p-5 rounded-2xl glass-panel border border-slate-800 text-xs text-slate-400">
+          No scans recorded yet. Charts fill in as you scan messages on the Analyze or Dashboard pages.
+        </div>
+      )}
 
       {/* Primary Visualizations Grid: Timeline & Distribution */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -135,8 +145,8 @@ export default function AnalyticsPage() {
                 <Pie
                   data={[
                     { name: 'High Risk (Fraud)', count: data.highRiskCount, color: '#ef4444' },
-                    { name: 'Medium Risk (Suspicious)', count: data.mediumRiskCount, color: '#f59e0b' },
-                    { name: 'Low Risk (Legitimate)', count: data.lowRiskCount, color: '#10b981' },
+                    { name: 'Medium Risk (Fraud, lower confidence)', count: data.mediumRiskCount, color: '#f59e0b' },
+                    { name: 'Low Risk (Below threshold)', count: data.lowRiskCount, color: '#10b981' },
                   ]}
                   dataKey="count"
                   nameKey="name"
@@ -173,13 +183,13 @@ export default function AnalyticsPage() {
             </div>
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-slate-300">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Medium (Suspicious)
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Medium (Fraud, lower confidence)
               </span>
               <span className="font-mono text-amber-400 font-bold">{data.mediumRiskCount}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-slate-300">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Low (Legitimate)
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Low (Below threshold)
               </span>
               <span className="font-mono text-emerald-400 font-bold">{data.lowRiskCount}</span>
             </div>
@@ -193,7 +203,7 @@ export default function AnalyticsPage() {
         <div className="p-5 rounded-2xl glass-panel border border-slate-800">
           <div className="mb-4">
             <h3 className="text-sm font-bold text-slate-200">Risk Score Histogram</h3>
-            <p className="text-xs text-slate-400">Frequency of confidence probabilities across corpus</p>
+            <p className="text-xs text-slate-400">Fraud probability of each scanned message</p>
           </div>
 
           <div className="h-64 w-full">
@@ -213,7 +223,7 @@ export default function AnalyticsPage() {
                   {data.riskDistribution.map((entry, index) => (
                     <Cell
                       key={`bar-${index}`}
-                      fill={entry.isHighRisk ? '#ef4444' : entry.range.includes('40%') ? '#f59e0b' : '#06b6d4'}
+                      fill={entry.isHighRisk ? '#ef4444' : entry.range === '40-70%' ? '#f59e0b' : '#06b6d4'}
                     />
                   ))}
                 </Bar>
@@ -226,7 +236,7 @@ export default function AnalyticsPage() {
         <div className="p-5 rounded-2xl glass-panel border border-slate-800">
           <div className="mb-4">
             <h3 className="text-sm font-bold text-slate-200">Signal Presence & Fraud Correlation</h3>
-            <p className="text-xs text-slate-400">How often heuristic features appear with malicious intent</p>
+            <p className="text-xs text-slate-400">Share of scans with each signal that the model flagged as fraud</p>
           </div>
 
           <div className="h-64 w-full">
@@ -241,7 +251,7 @@ export default function AnalyticsPage() {
                     borderRadius: '8px',
                     fontSize: '12px',
                   }}
-                  formatter={(val: any) => [`${val}% fraud correlation`, 'Fraud Rate']}
+                  formatter={(val) => [`${val}% flagged as fraud`, 'Fraud Rate']}
                 />
                 <Bar dataKey="fraudRate" fill="#06b6d4" radius={[0, 4, 4, 0]} />
               </BarChart>
