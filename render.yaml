@@ -16,6 +16,9 @@ services:
       - key: COOKIE_SECURE
         value: "1"
       # Trust Render's proxy chain so rate limits see the client address.
+      # Safe only behind Render's proxy: if the API is ever reachable directly,
+      # clients can forge X-Forwarded-For and dodge per-IP rate limits. Set
+      # this to the proxy's address range on any other host.
       - key: FORWARDED_ALLOW_IPS
         value: "*"
       # Public HTTPS URL of the trained model file and its SHA-256.
