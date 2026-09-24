@@ -20,7 +20,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (session.status !== 'signed-in') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#070a12] text-slate-100 cyber-grid-bg p-6">
+      <div className="min-h-screen flex items-center justify-center bg-app text-slate-100 cyber-grid-bg p-6">
         <div className="w-full max-w-lg">
           {session.status === 'error' ? (
             <ApiErrorPanel error={session.error} onRetry={refreshSession} />
@@ -33,7 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen flex bg-[#070a12] text-slate-100 cyber-grid-bg">
+    <div className="min-h-screen flex bg-app text-slate-100 cyber-grid-bg">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Header />

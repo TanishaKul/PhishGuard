@@ -45,7 +45,7 @@ export default function AdminPage() {
 
   return (
     <AppShell>
-      <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900/90 via-[#0b1329]/80 to-slate-900/90 border border-slate-800">
+      <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900/90 via-hero/80 to-slate-900/90 border border-slate-800">
         <h2 className="text-xl font-bold text-slate-100">Admin</h2>
         <p className="text-xs text-slate-400">
           Usage across all accounts and user corrections. Model: {stats.model ?? 'not loaded'}. Export
@@ -71,7 +71,7 @@ export default function AdminPage() {
               <BarChart data={stats.scansByDay}>
                 <XAxis dataKey="date" stroke="#64748b" fontSize={11} tickLine={false} />
                 <YAxis stroke="#64748b" fontSize={11} tickLine={false} allowDecimals={false} />
-                <Tooltip contentStyle={{ backgroundColor: '#090d16', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
+                <Tooltip contentStyle={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-slate-700)', borderRadius: '8px', fontSize: '12px' }} />
                 <Bar dataKey="count" name="Scans" fill="#06b6d4" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>

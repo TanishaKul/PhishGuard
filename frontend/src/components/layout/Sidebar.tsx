@@ -75,7 +75,7 @@ export function Sidebar() {
       : NAV_ITEMS;
 
   return (
-    <aside className="w-64 bg-[#090d16]/95 border-r border-slate-800/80 flex flex-col shrink-0 h-screen sticky top-0 z-30 select-none">
+    <aside className="w-64 bg-surface/95 border-r border-slate-800/80 flex flex-col shrink-0 h-screen sticky top-0 z-30 select-none">
       {/* Brand Header */}
       <div className="p-5 border-b border-slate-800/80 flex items-center gap-3">
         <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/20 via-slate-900 to-teal-500/20 border border-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.25)]">

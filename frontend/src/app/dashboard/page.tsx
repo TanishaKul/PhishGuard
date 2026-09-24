@@ -114,7 +114,7 @@ export default function DashboardPage() {
   return (
     <AppShell>
       {/* Top Welcome / Status Hero Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-gradient-to-r from-slate-900/90 via-[#0b1329]/80 to-slate-900/90 border border-slate-800 shadow-xl">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-gradient-to-r from-slate-900/90 via-hero/80 to-slate-900/90 border border-slate-800 shadow-xl">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-400">
@@ -385,8 +385,8 @@ export default function DashboardPage() {
                 <YAxis stroke="#64748b" fontSize={11} tickLine={false} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#090d16',
-                    borderColor: '#334155',
+                    backgroundColor: 'var(--color-surface)',
+                    borderColor: 'var(--color-slate-700)',
                     borderRadius: '8px',
                     fontSize: '12px',
                   }}
@@ -436,8 +436,8 @@ export default function DashboardPage() {
                 </Pie>
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#090d16',
-                    borderColor: '#334155',
+                    backgroundColor: 'var(--color-surface)',
+                    borderColor: 'var(--color-slate-700)',
                     borderRadius: '8px',
                     fontSize: '11px',
                   }}

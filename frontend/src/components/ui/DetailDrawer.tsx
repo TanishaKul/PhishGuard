@@ -24,9 +24,9 @@ export function DetailDrawer({ item, isOpen, onClose, onFeedbackChange }: Detail
       />
 
       {/* Slide-over Content Container */}
-      <div className="relative w-full max-w-2xl bg-[#090d16] border-l border-slate-800 shadow-2xl h-full flex flex-col z-10 overflow-y-auto">
+      <div className="relative w-full max-w-2xl bg-surface border-l border-slate-800 shadow-2xl h-full flex flex-col z-10 overflow-y-auto">
         {/* Drawer Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-[#090d16]/90 backdrop-blur-md z-20">
+        <div className="p-4 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-surface/90 backdrop-blur-md z-20">
           <div className="flex items-center gap-2">
             <span className="text-xs font-mono font-bold text-slate-400">SCAN TELEMETRY</span>
             <span className="text-xs font-mono text-cyan-400">{item.id}</span>

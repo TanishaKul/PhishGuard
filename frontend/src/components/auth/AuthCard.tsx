@@ -3,6 +3,7 @@
 import React, { useId, useState } from 'react';
 import { AlertCircle, Check, Eye, EyeOff, Loader2, LockKeyhole, ShieldAlert, ShieldCheck, Sparkles, Zap } from 'lucide-react';
 import { ApiError } from '@/lib/api';
+import { ThemeToggle } from '@/components/layout/ThemeToggle';
 
 export const MIN_PASSWORD_LENGTH = 8;
 export const MAX_PASSWORD_LENGTH = 256;
@@ -41,7 +42,7 @@ export function AuthCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-[#070a12] text-slate-100">
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-app text-slate-100">
       <aside className="hidden lg:flex flex-col justify-between p-12 cyber-grid-bg border-r border-slate-800/80">
         <Brand />
         <div className="space-y-8 max-w-md">
@@ -74,7 +75,8 @@ export function AuthCard({
         </p>
       </aside>
 
-      <main className="min-w-0 flex items-center justify-center p-6 sm:p-10 cyber-grid-bg lg:bg-none">
+      <main className="relative min-w-0 flex items-center justify-center p-6 sm:p-10 cyber-grid-bg lg:bg-none">
+        <ThemeToggle className="absolute top-4 right-4" />
         <div className="w-full max-w-sm space-y-8">
           <div className="lg:hidden flex justify-center">
             <Brand />
@@ -243,7 +245,7 @@ export function SubmitButton({ busy, busyLabel, children }: { busy: boolean; bus
       type="submit"
       disabled={busy}
       aria-busy={busy}
-      className="w-full h-11 rounded-lg bg-cyan-500 hover:bg-cyan-400 active:bg-cyan-600 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#070a12]"
+      className="w-full h-11 rounded-lg bg-cyan-500 hover:bg-cyan-400 active:bg-cyan-600 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-app"
     >
       {busy && <Loader2 className="w-4 h-4 animate-spin" />}
       <span>{busy ? busyLabel : children}</span>

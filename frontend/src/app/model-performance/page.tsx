@@ -96,7 +96,7 @@ export default function ModelPerformancePage() {
   return (
     <AppShell>
       {/* Top Banner */}
-      <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900/90 via-[#0b1329]/80 to-slate-900/90 border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900/90 via-hero/80 to-slate-900/90 border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-400">
@@ -425,8 +425,8 @@ export default function ModelPerformancePage() {
                   <YAxis stroke="#64748b" fontSize={11} domain={[0, 100]} unit="%" />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#090d16',
-                      borderColor: '#334155',
+                      backgroundColor: 'var(--color-surface)',
+                      borderColor: 'var(--color-slate-700)',
                       borderRadius: '8px',
                       fontSize: '12px',
                     }}

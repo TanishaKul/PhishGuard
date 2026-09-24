@@ -57,7 +57,7 @@ export function GaugeChart({
         <path
           d={`M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`}
           fill="none"
-          stroke="#1e293b"
+          style={{ stroke: 'var(--color-slate-800)' }}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
         />

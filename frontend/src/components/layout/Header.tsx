@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { logout } from '@/lib/api';
 import { markSignedOut, useApiHealth, useSession } from '@/lib/hooks';
+import { ThemeToggle } from './ThemeToggle';
 import {
   ScanLine,
   Clock,
@@ -81,7 +82,7 @@ export function Header() {
   };
 
   return (
-    <header className="h-16 bg-[#090d16]/80 backdrop-blur-md border-b border-slate-800/80 px-6 flex items-center justify-between sticky top-0 z-20">
+    <header className="h-16 bg-surface/80 backdrop-blur-md border-b border-slate-800/80 px-6 flex items-center justify-between sticky top-0 z-20">
       {/* Title & Breadcrumb */}
       <div>
         <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
@@ -114,6 +115,8 @@ export function Header() {
             {health ? 'MODEL API ONLINE' : healthError ? 'MODEL API OFFLINE' : 'CHECKING API'}
           </span>
         </div>
+
+        <ThemeToggle />
 
         {session.status === 'signed-in' && (
           <div className="flex items-center gap-2">
