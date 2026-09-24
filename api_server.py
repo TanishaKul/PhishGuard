@@ -46,6 +46,9 @@ from pathlib import Path
 from typing import Annotated, Literal
 from spamham_project_v3 import TextNormalizer, HandcraftedFeatures
 
+# Models trained by older versions of spamham_project_v3.py (run as __main__)
+# pickled these classes as __main__.X. Current training pickles them under
+# the module name, so this only keeps those older model files loadable.
 sys.modules["__main__"].TextNormalizer = TextNormalizer
 sys.modules["__main__"].HandcraftedFeatures = HandcraftedFeatures
 import joblib
