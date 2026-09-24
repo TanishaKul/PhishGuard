@@ -61,21 +61,27 @@ export function useApiHealth() {
       if (inFlight) return;
       inFlight = true;
       const current = ++generation;
-      setHealth(null);
+      // Keep the last result on screen while polling so the status doesn't flicker.
       getHealth()
         .then((h) => {
-          if (!cancelled && generation === current) setHealth(h);
-          if (!cancelled && generation === current) setError(null);
+          if (!cancelled && generation === current) {
+            setHealth(h);
+            setError(null);
+          }
         })
         .catch((err) => {
-          if (!cancelled && generation === current) setHealth(null);
-          if (!cancelled && generation === current) setError(toApiError(err));
+          if (!cancelled && generation === current) {
+            setHealth(null);
+            setError(toApiError(err));
+          }
         })
         .finally(() => {
-          inFlight = false;
+          if (generation === current) inFlight = false;
         });
     };
     const onApiUrlChanged = () => {
+      // A different server: the old result no longer applies.
+      setHealth(null);
       setError(null);
       generation++;
       inFlight = false;
