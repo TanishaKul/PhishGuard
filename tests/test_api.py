@@ -503,3 +503,9 @@ def test_invalid_scan_rate_limit_is_rejected(model_path, database, monkeypatch, 
     with pytest.raises(ValueError, match="SCAN_RATE_LIMIT"):
         create_app(model_path=model_path, database=database, extra_origins=[], cookie_secure=False)
 
+
+def test_production_without_smtp_warns_at_startup(model_path, database, monkeypatch, capsys):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    create_app(model_path=model_path, database=database, extra_origins=[], cookie_secure=False)
+    assert "SMTP_HOST is not set" in capsys.readouterr().out

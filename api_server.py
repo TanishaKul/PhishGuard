@@ -286,6 +286,11 @@ def create_app(model_path: Path | None = None, database: Database | None = None,
     scan_rate_limit = int(raw_scan_limit)
 
     mail = mail or mailer.mailer_from_env()
+    if isinstance(mail, mailer.DisabledMailer):
+        # Forgot-password answers the same way whether or not mail was sent (so it
+        # cannot reveal who has an account); say it loudly here instead.
+        print("[PhishGuard] WARNING: APP_ENV=production but SMTP_HOST is not set. "
+              "Password-reset emails will not be delivered until SMTP_* is configured.")
     app_url = (app_url or os.environ.get("APP_URL", "http://localhost:3001")).rstrip("/")
 
     model = ModelState()
