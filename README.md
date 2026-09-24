@@ -76,6 +76,7 @@ history is stored per user in the database. API docs: http://localhost:8000/api/
 | `APP_URL` | `http://localhost:3001` | web app address used in reset links |
 | `APP_ENV` | `development` | set to `production` to require SMTP and HTTPS model downloads |
 | `SMTP_HOST` … `MAIL_FROM` | unset | send real email; production fails closed without SMTP |
+| `SCAN_RATE_LIMIT` | `600` | scans each user may run per hour |
 | `API_PROXY_TARGET` (web) | unset | proxy `/api/*` to this API; pair with `NEXT_PUBLIC_API_URL=` |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | where the frontend finds the API |
 

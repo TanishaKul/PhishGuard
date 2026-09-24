@@ -482,3 +482,24 @@ def test_combined_model_report_redacts_private_samples_and_terms():
     assert safe["errorAnalysis"]["falseNegatives"][0]["message"].startswith("[redacted")
     assert safe["topIndicators"] == []
     assert report["errorAnalysis"]["falseNegatives"][0]["message"] == "Alice private SMS"
+
+
+def test_scan_rate_limit_is_configurable(model_path, database, monkeypatch):
+    monkeypatch.setenv("SCAN_RATE_LIMIT", "2")
+    app = create_app(model_path=model_path, database=database, extra_origins=[], cookie_secure=False)
+    with TestClient(app) as c:
+        register(c)
+        for _ in range(2):
+            assert c.post("/api/scan", json={"message": FRAUD[0]}).status_code == 200
+        r = c.post("/api/scan", json={"message": FRAUD[0]})
+        assert r.status_code == 429
+        assert "2 scans per hour" in r.json()["hint"]
+        assert "retry-after" in r.headers
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "lots", ""])
+def test_invalid_scan_rate_limit_is_rejected(model_path, database, monkeypatch, value):
+    monkeypatch.setenv("SCAN_RATE_LIMIT", value)
+    with pytest.raises(ValueError, match="SCAN_RATE_LIMIT"):
+        create_app(model_path=model_path, database=database, extra_origins=[], cookie_secure=False)
+

@@ -27,7 +27,8 @@ Configuration (environment): MODEL_PATH, MODEL_URL + required MODEL_SHA256
 (download the model on startup when MODEL_PATH is missing), DATABASE_URL (see db.py),
 ALLOWED_ORIGINS (comma-separated, added to localhost), COOKIE_SECURE=1 behind HTTPS,
 COOKIE_SAMESITE=none when the frontend is on another site (requires COOKIE_SECURE=1),
-APP_URL (frontend address used in reset links), SMTP_* (see mailer.py), and
+APP_URL (frontend address used in reset links), SMTP_* (see mailer.py),
+SCAN_RATE_LIMIT (scans per user per hour, default 600), and
 APP_ENV=production (requires HTTPS model downloads and real SMTP).
 
 Run: python api_server.py --port 8000
@@ -71,6 +72,8 @@ TRAIN_COMMAND = "python spamham_project_v3.py --data spam.csv"
 MAX_MESSAGE_CHARS = 5000
 MAX_BODY_BYTES = 64 * 1024
 MAX_MODEL_BYTES = 100 * 1024 * 1024
+# Generous enough for demos and batch testing; set SCAN_RATE_LIMIT to change it.
+DEFAULT_SCAN_RATE_LIMIT = 600
 
 LOCALHOST_ORIGINS = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 
@@ -277,6 +280,10 @@ def create_app(model_path: Path | None = None, database: Database | None = None,
     if cookie_samesite == "none" and not cookie_secure:
         # Browsers drop SameSite=None cookies that are not Secure, so sign-in would silently fail.
         raise ValueError("COOKIE_SAMESITE=none requires COOKIE_SECURE=1 (HTTPS)")
+    raw_scan_limit = os.environ.get("SCAN_RATE_LIMIT", str(DEFAULT_SCAN_RATE_LIMIT))
+    if not raw_scan_limit.isdigit() or int(raw_scan_limit) < 1:
+        raise ValueError(f"SCAN_RATE_LIMIT must be a positive whole number of scans per hour; got {raw_scan_limit!r}")
+    scan_rate_limit = int(raw_scan_limit)
 
     mail = mail or mailer.mailer_from_env()
     app_url = (app_url or os.environ.get("APP_URL", "http://localhost:3001")).rstrip("/")
@@ -288,7 +295,7 @@ def create_app(model_path: Path | None = None, database: Database | None = None,
     reset_ip_limiter = auth.LoginRateLimiter(max_failures=200, window_seconds=3600)
     register_limiter = auth.LoginRateLimiter(max_failures=200, window_seconds=3600)
     register_email_limiter = auth.LoginRateLimiter(max_failures=5, window_seconds=3600)
-    scan_limiter = auth.LoginRateLimiter(max_failures=120, window_seconds=3600)
+    scan_limiter = auth.LoginRateLimiter(max_failures=scan_rate_limit, window_seconds=3600)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -626,7 +633,8 @@ def create_app(model_path: Path | None = None, database: Database | None = None,
         require_model()
         enforce_rate_limit(
             scan_limiter, f"scan|{user.id}|{client_key(request)}",
-            "Too many scans from this account.", "Try again later.",
+            "Too many scans from this account.",
+            f"The limit is {scan_rate_limit} scans per hour. Try again later.",
         )
         message = body.message.strip()
         if not message:
