@@ -3,23 +3,67 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { LogIn, UserPlus } from 'lucide-react';
-import { AuthCard, inputClass } from '@/components/auth/AuthCard';
-import { ApiErrorPanel } from '@/components/ui/ApiErrorPanel';
+import { Lock, Mail } from 'lucide-react';
+import {
+  AuthCard,
+  EMAIL_PATTERN,
+  FormAlert,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  PasswordField,
+  PasswordStrength,
+  SubmitButton,
+  TextField,
+  toApiError,
+} from '@/components/auth/AuthCard';
 import { ApiError, login, register } from '@/lib/api';
 import { markSignedIn, useSession } from '@/lib/hooks';
 
-const MIN_PASSWORD_LENGTH = 8;
+type Mode = 'signin' | 'register';
+type FieldErrors = { email?: string; password?: string; confirm?: string };
+
+const COPY: Record<Mode, { title: string; subtitle: string; submit: string; busy: string }> = {
+  signin: {
+    title: 'Welcome back',
+    subtitle: 'Sign in to scan messages and review your history.',
+    submit: 'Sign in',
+    busy: 'Signing in...',
+  },
+  register: {
+    title: 'Create your account',
+    subtitle: 'Start detecting SMS fraud in less than a minute.',
+    submit: 'Create account',
+    busy: 'Creating account...',
+  },
+};
+
+function validate(mode: Mode, email: string, password: string, confirm: string): FieldErrors {
+  const errors: FieldErrors = {};
+  if (!email.trim()) errors.email = 'Enter your email address.';
+  else if (!EMAIL_PATTERN.test(email.trim())) errors.email = 'Enter a valid email address, like name@example.com.';
+
+  if (!password) errors.password = 'Enter your password.';
+  else if (mode === 'register') {
+    if (password.length < MIN_PASSWORD_LENGTH) errors.password = `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+    else if (password.length > MAX_PASSWORD_LENGTH) errors.password = `Use at most ${MAX_PASSWORD_LENGTH} characters.`;
+    if (!confirm) errors.confirm = 'Re-enter your password.';
+    else if (confirm !== password) errors.confirm = "Passwords don't match.";
+  }
+  return errors;
+}
 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const session = useSession();
-  const [mode, setMode] = useState<'signin' | 'register'>('signin');
+  const [mode, setMode] = useState<Mode>(params.get('mode') === 'register' ? 'register' : 'signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
+  const [emailTaken, setEmailTaken] = useState(false);
 
   // Only follow same-app paths, never an absolute URL from the query string.
   const nextParam = params.get('next') || '/dashboard';
@@ -29,83 +73,147 @@ function LoginForm() {
     if (session.status === 'signed-in') router.replace(next);
   }, [session.status, router, next]);
 
+  const switchMode = (value: Mode) => {
+    if (value === mode) return;
+    setMode(value);
+    setError(null);
+    setFieldErrors({});
+    setEmailTaken(false);
+    setConfirm('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (mode === 'register' && password.length < MIN_PASSWORD_LENGTH) {
-      setError(new ApiError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`, 400));
-      return;
-    }
+    setEmailTaken(false);
+    const errors = validate(mode, email, password, confirm);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) return;
+
     setBusy(true);
     try {
-      const user = mode === 'signin' ? await login(email, password) : await register(email, password);
+      const user = mode === 'signin' ? await login(email.trim(), password) : await register(email.trim(), password);
       markSignedIn(user);
       router.replace(next);
     } catch (err) {
-      setError(err instanceof ApiError ? err : new ApiError(String(err), 0));
+      const apiError = toApiError(err);
+      // An existing account is best fixed by signing in, with the email kept.
+      if (mode === 'register' && apiError.status === 409) {
+        setFieldErrors({ email: 'An account with this email already exists.' });
+        setEmailTaken(true);
+      } else {
+        setError(apiError);
+      }
     } finally {
       setBusy(false);
     }
   };
 
+  const copy = COPY[mode];
+
   return (
-    <AuthCard title={mode === 'signin' ? 'Sign in' : 'Create an account'}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <label className="block space-y-1.5">
-          <span className="text-xs font-mono text-slate-400">Email</span>
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className={inputClass}
-          />
-        </label>
+    <AuthCard title={copy.title} subtitle={copy.subtitle}>
+      <div role="tablist" aria-label="Account" className="grid grid-cols-2 p-1 rounded-lg bg-slate-900/80 border border-slate-800">
+        {(['signin', 'register'] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={mode === value}
+            onClick={() => switchMode(value)}
+            className={`h-9 rounded-md text-sm font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${
+              mode === value ? 'bg-slate-800 text-slate-50 shadow-sm' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {value === 'signin' ? 'Sign in' : 'Create account'}
+          </button>
+        ))}
+      </div>
 
-        <label className="block space-y-1.5">
-          <span className="text-xs font-mono text-slate-400">Password</span>
-          <input
-            type="password"
-            required
-            autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className={inputClass}
-          />
-          {mode === 'register' && (
-            <span className="text-[11px] text-slate-500">At least {MIN_PASSWORD_LENGTH} characters.</span>
-          )}
-        </label>
-
-        {error && <ApiErrorPanel error={error} />}
-
-        <button
-          type="submit"
+      <form onSubmit={handleSubmit} noValidate className="space-y-5">
+        <TextField
+          label="Email"
+          icon={Mail}
+          type="email"
+          name="email"
+          autoComplete="email"
+          inputMode="email"
+          placeholder="name@company.com"
+          autoFocus
+          value={email}
+          error={fieldErrors.email}
           disabled={busy}
-          className="w-full py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
-        >
-          {mode === 'signin' ? <LogIn className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
-          <span>{busy ? 'Please wait...' : mode === 'signin' ? 'Sign in' : 'Create account'}</span>
-        </button>
-
-        {mode === 'signin' && (
-          <Link href="/forgot-password" className="block text-center text-xs text-slate-400 hover:text-slate-200">
-            Forgot password?
-          </Link>
+          onChange={(e) => {
+            setEmail(e.target.value);
+            setEmailTaken(false);
+            if (fieldErrors.email) setFieldErrors({ ...fieldErrors, email: undefined });
+          }}
+        />
+        {emailTaken && (
+          <button
+            type="button"
+            onClick={() => switchMode('signin')}
+            className="-mt-3 text-xs text-cyan-400 hover:text-cyan-300 cursor-pointer"
+          >
+            Sign in with this email instead
+          </button>
         )}
 
+        <PasswordField
+          label="Password"
+          icon={Lock}
+          name="password"
+          autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+          placeholder={mode === 'signin' ? 'Enter your password' : 'Create a password'}
+          maxLength={MAX_PASSWORD_LENGTH}
+          value={password}
+          error={fieldErrors.password}
+          disabled={busy}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            if (fieldErrors.password) setFieldErrors({ ...fieldErrors, password: undefined });
+          }}
+          labelAside={mode === 'signin' && (
+            <Link href="/forgot-password" className="text-xs text-cyan-400 hover:text-cyan-300">
+              Forgot password?
+            </Link>
+          )}
+          hint={mode === 'register' && password ? <PasswordStrength password={password} /> : null}
+        />
+
+        {mode === 'register' && (
+          <PasswordField
+            label="Confirm password"
+            icon={Lock}
+            name="confirm-password"
+            autoComplete="new-password"
+            placeholder="Re-enter your password"
+            maxLength={MAX_PASSWORD_LENGTH}
+            value={confirm}
+            error={fieldErrors.confirm}
+            disabled={busy}
+            onChange={(e) => {
+              setConfirm(e.target.value);
+              if (fieldErrors.confirm) setFieldErrors({ ...fieldErrors, confirm: undefined });
+            }}
+          />
+        )}
+
+        {error && <FormAlert error={error} />}
+
+        <SubmitButton busy={busy} busyLabel={copy.busy}>{copy.submit}</SubmitButton>
+      </form>
+
+      <p className="text-center text-sm text-slate-400">
+        {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
         <button
           type="button"
-          onClick={() => {
-            setMode(mode === 'signin' ? 'register' : 'signin');
-            setError(null);
-          }}
-          className="w-full text-xs text-cyan-400 hover:text-cyan-300"
+          onClick={() => switchMode(mode === 'signin' ? 'register' : 'signin')}
+          className="font-medium text-cyan-400 hover:text-cyan-300 cursor-pointer"
         >
-          {mode === 'signin' ? "Don't have an account? Create one" : 'Already have an account? Sign in'}
+          {mode === 'signin' ? 'Create one' : 'Sign in'}
         </button>
-      </form>
+      </p>
     </AuthCard>
   );
 }
