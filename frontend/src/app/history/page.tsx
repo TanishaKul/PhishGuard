@@ -12,7 +12,7 @@ import {
 import { AppShell } from '@/components/layout/AppShell';
 import { DetailDrawer } from '@/components/ui/DetailDrawer';
 import { ApiErrorPanel, LoadingPanel } from '@/components/ui/ApiErrorPanel';
-import { ApiError, clearScanHistory, getScanHistory } from '@/lib/api';
+import { ApiError, clearScanHistory, formatTimestamp, getScanHistory } from '@/lib/api';
 import { FeedbackLabel, ScanHistoryItem } from '@/lib/types';
 
 export default function HistoryPage() {
@@ -266,7 +266,7 @@ export default function HistoryPage() {
                     className="hover:bg-slate-800/40 transition-colors cursor-pointer group"
                   >
                     <td className="py-3 px-4 font-mono text-slate-400 whitespace-nowrap">
-                      {item.timestamp}
+                      <span title={item.timestamp}>{formatTimestamp(item.timestamp)}</span>
                     </td>
                     <td className="py-3 px-4 max-w-sm text-slate-200">
                       <p className="truncate">{item.message}</p>

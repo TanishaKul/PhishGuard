@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { AppShell } from '@/components/layout/AppShell';
 import { ApiErrorPanel, LoadingPanel } from '@/components/ui/ApiErrorPanel';
-import { AdminFeedbackItem, AdminStats, ApiError, getAdminFeedback, getAdminStats } from '@/lib/api';
+import { AdminFeedbackItem, AdminStats, ApiError, formatTimestamp, getAdminFeedback, getAdminStats } from '@/lib/api';
 
 function Tile({ label, value, tone = 'text-slate-100' }: { label: string; value: number | string; tone?: string }) {
   return (
@@ -107,7 +107,7 @@ export default function AdminPage() {
               )}
               {shown.map((f) => (
                 <tr key={f.scanId}>
-                  <td className="py-2.5 px-3 font-mono text-slate-400 whitespace-nowrap">{f.createdAt}</td>
+                  <td className="py-2.5 px-3 font-mono text-slate-400 whitespace-nowrap"><span title={f.createdAt}>{formatTimestamp(f.createdAt)}</span></td>
                   <td className="py-2.5 px-3 text-slate-200 max-w-md break-words">{f.message}</td>
                   <td className="py-2.5 px-3 font-mono">
                     {f.predicted} {(f.probability * 100).toFixed(0)}% score

@@ -29,7 +29,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { ScanResultCard } from '@/components/ui/ScanResultCard';
 import { DetailDrawer } from '@/components/ui/DetailDrawer';
 import { ApiErrorPanel } from '@/components/ui/ApiErrorPanel';
-import { ApiError, getAnalyticsData, getScanHistory, scanMessage } from '@/lib/api';
+import { ApiError, formatTimestamp, getAnalyticsData, getScanHistory, scanMessage } from '@/lib/api';
 import { useModelReport } from '@/lib/hooks';
 import { AnalyticsData, FeedbackLabel, ScanHistoryItem, ScanResult } from '@/lib/types';
 
@@ -509,7 +509,7 @@ export default function DashboardPage() {
                   className="hover:bg-slate-800/40 transition-colors cursor-pointer"
                 >
                   <td className="py-3 px-3 font-mono text-slate-400 whitespace-nowrap">
-                    {item.timestamp.slice(11, 19)}
+                    {formatTimestamp(item.timestamp, 'time')}
                   </td>
                   <td className="py-3 px-3 text-slate-200 max-w-xs truncate">
                     {item.message}

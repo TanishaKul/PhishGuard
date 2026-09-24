@@ -277,6 +277,15 @@ const CATEGORY_LABELS: Record<string, { name: string; color: string }> = {
   link_risk: { name: 'Risky Link', color: '#dc2626' },
 };
 
+// API timestamps are ISO-8601 with an offset; show them in the viewer's local time.
+export function formatTimestamp(timestamp: string, style: 'datetime' | 'time' = 'datetime'): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp;
+  return style === 'time'
+    ? date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : date.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 function dayKey(timestamp: string): string {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return timestamp.slice(0, 10);
