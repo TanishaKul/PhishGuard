@@ -110,7 +110,7 @@ export function GaugeChart({
         </div>
         <div className="flex items-center justify-center gap-1.5 mt-0.5">
           <span
-            className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+            className={`text-[12px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
               riskLevel === 'HIGH'
                 ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-[0_0_8px_rgba(239,68,68,0.2)]'
                 : riskLevel === 'MEDIUM'

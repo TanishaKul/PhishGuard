@@ -127,7 +127,7 @@ export default function HistoryPage() {
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-400">
               Audit Logs & Telemetry
             </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
+            <span className="text-[12px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
               {history.length} Total Records
             </span>
           </div>
@@ -176,7 +176,7 @@ export default function HistoryPage() {
 
         {/* Verdict Filters */}
         <div className="flex items-center gap-1.5 bg-slate-950/80 p-1 rounded-lg border border-slate-800 text-xs font-mono">
-          <span className="text-[10px] text-slate-400 px-2 uppercase">Verdict:</span>
+          <span className="text-[12px] text-slate-400 px-2 uppercase">Verdict:</span>
           {(['ALL', 'FRAUD', 'LEGITIMATE'] as const).map((v) => (
             <button
               key={v}
@@ -198,7 +198,7 @@ export default function HistoryPage() {
 
         {/* Risk Filters */}
         <div className="flex items-center gap-1.5 bg-slate-950/80 p-1 rounded-lg border border-slate-800 text-xs font-mono">
-          <span className="text-[10px] text-slate-400 px-2 uppercase">Severity:</span>
+          <span className="text-[12px] text-slate-400 px-2 uppercase">Severity:</span>
           {(['ALL', 'HIGH', 'MEDIUM', 'LOW'] as const).map((r) => (
             <button
               key={r}
@@ -219,7 +219,7 @@ export default function HistoryPage() {
       <div className="rounded-2xl glass-panel border border-slate-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/80 border-b border-slate-800 font-mono">
+            <thead className="text-[13px] uppercase tracking-wider text-slate-400 bg-slate-900/80 border-b border-slate-800 font-mono whitespace-nowrap">
               <tr>
                 <th
                   onClick={() => handleSort('timestamp')}
@@ -271,14 +271,14 @@ export default function HistoryPage() {
                     <td className="py-3 px-4 max-w-sm text-slate-200">
                       <p className="truncate">{item.message}</p>
                       {item.topReason && (
-                        <span className="text-[10px] text-slate-400 font-mono block mt-0.5 truncate">
+                        <span className="text-[12px] text-slate-400 font-mono block mt-0.5 truncate">
                           Flag: {item.topReason}
                         </span>
                       )}
                     </td>
                     <td className="py-3 px-4">
                       <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase font-mono ${
+                        className={`text-[12px] font-bold px-2 py-0.5 rounded uppercase font-mono ${
                           item.prediction === 'FRAUD'
                             ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                             : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
@@ -287,7 +287,7 @@ export default function HistoryPage() {
                         {item.prediction}
                       </span>
                     </td>
-                    <td className="py-3 px-4 font-mono font-bold text-[10px]">
+                    <td className="py-3 px-4 font-mono font-bold text-[12px]">
                       <span
                         className={`px-2 py-0.5 rounded ${
                           item.riskLevel === 'HIGH'
@@ -317,7 +317,7 @@ export default function HistoryPage() {
                       {item.confidence.toFixed(1)}%
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <button className="text-cyan-400 group-hover:text-cyan-300 font-mono text-[11px] inline-flex items-center gap-1">
+                      <button className="text-cyan-400 group-hover:text-cyan-300 font-mono text-[13px] inline-flex items-center gap-1">
                         <span>Inspect</span>
                         <ExternalLink className="w-3 h-3" />
                       </button>

@@ -22,7 +22,7 @@ import { ErrorAnalysisItem, FeatureContribution } from '@/lib/types';
 function DriverList({ label, drivers, tone }: { label: string; drivers: FeatureContribution[]; tone: 'rose' | 'emerald' }) {
   if (drivers.length === 0) return null;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+    <div className="flex flex-wrap items-center gap-1.5 text-[13px]">
       <span className="text-slate-400">{label}</span>
       {drivers.map((d) => (
         <span
@@ -102,7 +102,7 @@ export default function ModelPerformancePage() {
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-400">
               Hold-Out Test Evaluation
             </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
+            <span className="text-[12px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
               {total.toLocaleString()} Test Samples
             </span>
           </div>
@@ -143,72 +143,72 @@ export default function ModelPerformancePage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {/* PR-AUC */}
             <div className="p-4 rounded-xl glass-panel border border-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.1)]">
-              <span className="text-[10px] uppercase font-mono text-cyan-400 font-bold block mb-1">
+              <span className="text-[12px] uppercase font-mono text-cyan-400 font-bold block mb-1">
                 PR-AUC (Primary)
               </span>
               <div className="text-2xl font-black font-mono text-slate-100">
                 {(metrics.prAuc * 100).toFixed(2)}%
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">Area under PR curve</span>
+              <span className="text-[12px] text-slate-400 font-mono">Area under PR curve</span>
             </div>
 
             {/* ROC-AUC */}
             <div className="p-4 rounded-xl glass-panel border border-slate-800">
-              <span className="text-[10px] uppercase font-mono text-slate-400 font-bold block mb-1">
+              <span className="text-[12px] uppercase font-mono text-slate-400 font-bold block mb-1">
                 ROC-AUC
               </span>
               <div className="text-2xl font-black font-mono text-slate-100">
                 {(metrics.rocAuc * 100).toFixed(2)}%
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">Class separability</span>
+              <span className="text-[12px] text-slate-400 font-mono">Class separability</span>
             </div>
 
             {/* Recall */}
             <div className="p-4 rounded-xl glass-panel border border-emerald-500/30">
-              <span className="text-[10px] uppercase font-mono text-emerald-400 font-bold block mb-1">
+              <span className="text-[12px] uppercase font-mono text-emerald-400 font-bold block mb-1">
                 Fraud Recall
               </span>
               <div className="text-2xl font-black font-mono text-emerald-400">
                 {(metrics.recall * 100).toFixed(2)}%
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">
+              <span className="text-[12px] text-slate-400 font-mono">
                 {tp} of {fraudTotal} caught
               </span>
             </div>
 
             {/* Precision */}
             <div className="p-4 rounded-xl glass-panel border border-slate-800">
-              <span className="text-[10px] uppercase font-mono text-slate-400 font-bold block mb-1">
+              <span className="text-[12px] uppercase font-mono text-slate-400 font-bold block mb-1">
                 Precision
               </span>
               <div className="text-2xl font-black font-mono text-slate-100">
                 {(metrics.precision * 100).toFixed(2)}%
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">
+              <span className="text-[12px] text-slate-400 font-mono">
                 {tp} of {tp + fp} flags correct
               </span>
             </div>
 
             {/* F1 Score */}
             <div className="p-4 rounded-xl glass-panel border border-slate-800">
-              <span className="text-[10px] uppercase font-mono text-slate-400 font-bold block mb-1">
+              <span className="text-[12px] uppercase font-mono text-slate-400 font-bold block mb-1">
                 F1 Score
               </span>
               <div className="text-2xl font-black font-mono text-slate-100">
                 {(metrics.f1 * 100).toFixed(2)}%
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">Harmonic mean</span>
+              <span className="text-[12px] text-slate-400 font-mono">Harmonic mean</span>
             </div>
 
             {/* Expected Cost */}
             <div className="p-4 rounded-xl glass-panel border border-amber-500/30">
-              <span className="text-[10px] uppercase font-mono text-amber-400 font-bold block mb-1">
+              <span className="text-[12px] uppercase font-mono text-amber-400 font-bold block mb-1">
                 Expected Cost
               </span>
               <div className="text-2xl font-black font-mono text-amber-400">
                 {metrics.expectedCost.toFixed(1)}
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">
+              <span className="text-[12px] text-slate-400 font-mono">
                 {usesPrevalenceCost ? 'Target-prevalence weighted' : 'Raw held-out counts'}
               </span>
             </div>
@@ -234,51 +234,51 @@ export default function ModelPerformancePage() {
               <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto font-mono">
                 {/* True Negative */}
                 <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-center">
-                  <span className="text-[10px] uppercase font-bold text-emerald-400 block mb-1">
+                  <span className="text-[12px] uppercase font-bold text-emerald-400 block mb-1">
                     True Negative (TN)
                   </span>
                   <div className="text-3xl font-black text-emerald-400">{tn}</div>
-                  <span className="text-[11px] text-slate-400">Legit Correctly Passed</span>
-                  <span className="text-[10px] text-slate-500 block mt-1">
+                  <span className="text-[13px] text-slate-400">Legit Correctly Passed</span>
+                  <span className="text-[12px] text-slate-500 block mt-1">
                     {((tn / (tn + fp)) * 100).toFixed(1)}% Specificity
                   </span>
                 </div>
 
                 {/* False Positive */}
                 <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 text-center">
-                  <span className="text-[10px] uppercase font-bold text-amber-400 block mb-1">
+                  <span className="text-[12px] uppercase font-bold text-amber-400 block mb-1">
                     False Positive (FP)
                   </span>
                   <div className="text-3xl font-black text-amber-400">{fp}</div>
-                  <span className="text-[11px] text-slate-400">False Alarms</span>
-                  <span className="text-[10px] text-slate-500 block mt-1">
+                  <span className="text-[13px] text-slate-400">False Alarms</span>
+                  <span className="text-[12px] text-slate-500 block mt-1">
                     Cost penalty: {fp} × {costFp} = {fp * costFp}
                   </span>
                 </div>
 
                 {/* False Negative */}
                 <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-500/50 text-center relative overflow-hidden">
-                  <div className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-rose-900 text-rose-300 text-[9px] font-bold">
+                  <div className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-rose-900 text-rose-300 text-[11px] font-bold">
                     Cost {costFn / costFp}x
                   </div>
-                  <span className="text-[10px] uppercase font-bold text-rose-400 block mb-1">
+                  <span className="text-[12px] uppercase font-bold text-rose-400 block mb-1">
                     False Negative (FN)
                   </span>
                   <div className="text-3xl font-black text-rose-400">{fn}</div>
-                  <span className="text-[11px] text-slate-400">Missed Smishing Attack</span>
-                  <span className="text-[10px] text-slate-500 block mt-1">
+                  <span className="text-[13px] text-slate-400">Missed Smishing Attack</span>
+                  <span className="text-[12px] text-slate-500 block mt-1">
                     Cost penalty: {fn} × {costFn} = {fn * costFn}
                   </span>
                 </div>
 
                 {/* True Positive */}
                 <div className="p-4 rounded-xl bg-cyan-950/20 border border-cyan-500/30 text-center">
-                  <span className="text-[10px] uppercase font-bold text-cyan-400 block mb-1">
+                  <span className="text-[12px] uppercase font-bold text-cyan-400 block mb-1">
                     True Positive (TP)
                   </span>
                   <div className="text-3xl font-black text-cyan-400">{tp}</div>
-                  <span className="text-[11px] text-slate-400">Fraud Correctly Caught</span>
-                  <span className="text-[10px] text-slate-500 block mt-1">
+                  <span className="text-[13px] text-slate-400">Fraud Correctly Caught</span>
+                  <span className="text-[12px] text-slate-500 block mt-1">
                     {((tp / (tp + fn)) * 100).toFixed(1)}% Recall
                   </span>
                 </div>
@@ -342,7 +342,7 @@ export default function ModelPerformancePage() {
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/80 border-b border-slate-800 font-mono">
+                <thead className="text-[13px] uppercase tracking-wider text-slate-400 bg-slate-900/80 border-b border-slate-800 font-mono">
                   <tr>
                     <th className="py-3 px-4">Model Architecture</th>
                     <th className="py-3 px-4">CV PR-AUC</th>
@@ -368,7 +368,7 @@ export default function ModelPerformancePage() {
                         <div className="flex items-center gap-2">
                           <span>{c.name}</span>
                           {c.isBest && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500 text-slate-950 font-bold uppercase">
+                            <span className="text-[11px] px-1.5 py-0.5 rounded bg-cyan-500 text-slate-950 font-bold uppercase">
                               Selected
                             </span>
                           )}

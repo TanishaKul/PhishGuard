@@ -166,7 +166,7 @@ export default function DashboardPage() {
             <div className="text-2xl font-black font-mono text-slate-100">
               {totalScans.toLocaleString()}
             </div>
-            <span className="text-[11px] text-slate-400 flex items-center gap-1 font-medium">
+            <span className="text-[13px] text-slate-400 flex items-center gap-1 font-medium">
               <TrendingUp className="w-3 h-3" /> Your scans
             </span>
           </div>
@@ -185,7 +185,7 @@ export default function DashboardPage() {
             <div className="text-2xl font-black font-mono text-rose-400">
               {(analytics?.fraudCount ?? 0).toLocaleString()}
             </div>
-            <span className="text-[11px] text-rose-400/80 font-mono">
+            <span className="text-[13px] text-rose-400/80 font-mono">
               {threatShare}% of scans flagged
             </span>
           </div>
@@ -204,7 +204,7 @@ export default function DashboardPage() {
             <div className="text-2xl font-black font-mono text-emerald-400">
               {(analytics?.legitCount ?? 0).toLocaleString()}
             </div>
-            <span className="text-[11px] text-emerald-400/80 font-mono">
+            <span className="text-[13px] text-emerald-400/80 font-mono">
               {totalScans ? 100 - threatShare : 0}% below threshold
             </span>
           </div>
@@ -223,7 +223,7 @@ export default function DashboardPage() {
             <div className="text-2xl font-black font-mono text-amber-400">
               {(analytics?.highRiskCount ?? 0).toLocaleString()}
             </div>
-            <span className="text-[11px] text-amber-400/80 font-mono">
+            <span className="text-[13px] text-amber-400/80 font-mono">
               &gt;70% risk confidence
             </span>
           </div>
@@ -273,7 +273,7 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             {/* Quick Presets */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-[11px] text-slate-400 font-mono">Try Example:</span>
+              <span className="text-[13px] text-slate-400 font-mono">Try Example:</span>
               <button
                 type="button"
                 disabled={isScanning}
@@ -282,7 +282,7 @@ export default function DashboardPage() {
                     'URGENT! Your account has been blocked. Click here to verify immediately: https://secure-bank-auth.cc'
                   )
                 }
-                className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] border border-slate-800 font-medium transition-colors"
+                className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 text-[13px] border border-slate-800 font-medium transition-colors"
               >
                 ⚠️ Account Threat
               </button>
@@ -294,7 +294,7 @@ export default function DashboardPage() {
                     'Congratulations! You won a free £1,000 Walmart prize. Click http://giftcard-claim.com to redeem.'
                   )
                 }
-                className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] border border-slate-800 font-medium transition-colors"
+                className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 text-[13px] border border-slate-800 font-medium transition-colors"
               >
                 🎁 Prize Scam
               </button>
@@ -304,7 +304,7 @@ export default function DashboardPage() {
                 onClick={() =>
                   setQuickInput('Hey, are we still meeting at 6 pm today? Let me know!')
                 }
-                className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] border border-slate-800 font-medium transition-colors"
+                className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 text-[13px] border border-slate-800 font-medium transition-colors"
               >
                 💬 Legitimate
               </button>
@@ -448,7 +448,7 @@ export default function DashboardPage() {
               <span className="text-lg font-bold font-mono text-slate-100">
                 {analytics?.fraudCount ?? 0}
               </span>
-              <span className="text-[10px] block text-slate-400 uppercase">Threats</span>
+              <span className="text-[12px] block text-slate-400 uppercase">Threats</span>
             </div>
           </div>
 
@@ -484,7 +484,7 @@ export default function DashboardPage() {
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800 font-mono">
+            <thead className="text-[13px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800 font-mono">
               <tr>
                 <th className="py-2.5 px-3">Timestamp</th>
                 <th className="py-2.5 px-3">Message Snippet</th>
@@ -516,7 +516,7 @@ export default function DashboardPage() {
                   </td>
                   <td className="py-3 px-3">
                     <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase font-mono ${
+                      className={`text-[12px] font-bold px-2 py-0.5 rounded uppercase font-mono ${
                         item.prediction === 'FRAUD'
                           ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                           : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
@@ -542,7 +542,7 @@ export default function DashboardPage() {
                     {item.confidence.toFixed(1)}%
                   </td>
                   <td className="py-3 px-3 text-right">
-                    <button className="text-cyan-400 hover:text-cyan-300 font-mono text-[11px] inline-flex items-center gap-1">
+                    <button className="text-cyan-400 hover:text-cyan-300 font-mono text-[13px] inline-flex items-center gap-1">
                       <span>Inspect</span>
                       <ExternalLink className="w-3 h-3" />
                     </button>

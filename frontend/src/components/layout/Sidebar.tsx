@@ -88,17 +88,17 @@ export function Sidebar() {
         <div>
           <div className="flex items-center gap-1.5">
             <span className="text-base font-bold tracking-wider text-slate-100">PHISHGUARD</span>
-            <span className="text-[10px] uppercase font-semibold tracking-wider px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/60">
+            <span className="text-[12px] uppercase font-semibold tracking-wider px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/60">
               v3.0
             </span>
           </div>
-          <p className="text-[11px] text-slate-400 font-medium tracking-tight">AI Smishing Detection</p>
+          <p className="text-[13px] text-slate-400 font-medium tracking-tight">AI Smishing Detection</p>
         </div>
       </div>
 
       {/* Navigation */}
       <div className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-        <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        <div className="px-3 pb-2 text-[12px] font-semibold uppercase tracking-wider text-slate-400">
           Core Platform
         </div>
         {navItems.map((item) => {
@@ -136,10 +136,10 @@ export function Sidebar() {
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5">
             <Radio className={`w-3.5 h-3.5 ${health ? 'text-emerald-400 animate-pulse' : 'text-rose-400'}`} />
-            <span className="text-[11px] font-semibold text-slate-200">Model API</span>
+            <span className="text-[13px] font-semibold text-slate-200">Model API</span>
           </div>
           <span
-            className={`text-[10px] px-1.5 py-0.5 rounded font-mono border ${
+            className={`text-[12px] px-1.5 py-0.5 rounded font-mono border ${
               health
                 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                 : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
@@ -149,7 +149,7 @@ export function Sidebar() {
           </span>
         </div>
         {health ? (
-          <div className="space-y-1 text-[11px] text-slate-400 font-mono">
+          <div className="space-y-1 text-[13px] text-slate-400 font-mono">
             <div className="flex justify-between">
               <span className="text-slate-400">Pipeline:</span>
               <span className="text-slate-300 font-sans truncate max-w-[120px]" title={health.model}>
@@ -163,7 +163,7 @@ export function Sidebar() {
           </div>
         ) : (
           healthError && (
-            <p className="text-[11px] text-slate-400 leading-snug break-words">{healthError.message}</p>
+            <p className="text-[13px] text-slate-400 leading-snug break-words">{healthError.message}</p>
           )
         )}
       </div>

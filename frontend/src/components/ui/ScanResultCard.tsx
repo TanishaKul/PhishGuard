@@ -176,13 +176,13 @@ Recommended Action: ${result.recommendedAction.action}`;
           />
           <div className="border-l border-slate-800 pl-4 space-y-1.5 text-xs font-mono shrink-0">
             <div>
-              <span className="text-slate-400 block text-[10px] uppercase">Model Score</span>
+              <span className="text-slate-400 block text-[12px] uppercase">Model Score</span>
               <span className="text-sm font-bold text-slate-100">
                 {(result.probability * 100).toFixed(2)}%
               </span>
             </div>
             <div>
-              <span className="text-slate-400 block text-[10px] uppercase">Threshold</span>
+              <span className="text-slate-400 block text-[12px] uppercase">Threshold</span>
               <span className="text-xs font-semibold text-cyan-400">
                 {(result.threshold * 100).toFixed(2)}%
               </span>
@@ -194,10 +194,10 @@ Recommended Action: ${result.recommendedAction.action}`;
       {/* Scanned Message Preview */}
       <div className="mt-5 p-3.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
         <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-400 font-mono">
+          <span className="text-[13px] uppercase tracking-wider font-semibold text-slate-400 font-mono">
             Analyzed SMS Payload
           </span>
-          <span className="text-[11px] text-slate-400 font-mono">
+          <span className="text-[13px] text-slate-400 font-mono">
             {result.message.length} chars • {result.modelFeatures.wordCount} words
           </span>
         </div>
@@ -277,7 +277,7 @@ Recommended Action: ${result.recommendedAction.action}`;
 
         {driversExpanded && (
           <div className="px-4 pb-4 pt-2 border-t border-slate-800/80 space-y-3">
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[13px] text-slate-400">
               Local probability effects for this message. Positive values raise the fraud score; negative values lower it.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -289,19 +289,19 @@ Recommended Action: ${result.recommendedAction.action}`;
               ).map((col) => (
                 <div key={col.label} className="space-y-1.5">
                   <span
-                    className={`text-[10px] uppercase font-mono font-bold ${
+                    className={`text-[12px] uppercase font-mono font-bold ${
                       col.tone === 'rose' ? 'text-rose-400' : 'text-emerald-400'
                     }`}
                   >
                     {col.label}
                   </span>
                   {col.items.length === 0 ? (
-                    <p className="text-[11px] text-slate-500">None</p>
+                    <p className="text-[13px] text-slate-500">None</p>
                   ) : (
                     col.items.map((d) => (
                       <div
                         key={`${d.kind}-${d.term}`}
-                        className="flex items-center justify-between gap-2 text-[11px] font-mono bg-slate-950/60 px-2 py-1 rounded border border-slate-800/80"
+                        className="flex items-center justify-between gap-2 text-[13px] font-mono bg-slate-950/60 px-2 py-1 rounded border border-slate-800/80"
                       >
                         <span className="text-slate-200 truncate" title={d.term}>
                           {d.term}
@@ -332,7 +332,7 @@ Recommended Action: ${result.recommendedAction.action}`;
             <span className="text-xs font-bold text-slate-200 uppercase tracking-wider font-mono">
               Rule-based indicators
             </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono">
+            <span className="text-[12px] px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono">
               {result.reasons.length} {result.reasons.length === 1 ? 'Rule' : 'Rules'}
             </span>
           </div>
@@ -345,7 +345,7 @@ Recommended Action: ${result.recommendedAction.action}`;
 
         {whyExpanded && (
           <div className="px-4 pb-4 pt-1 space-y-2 border-t border-slate-800/80">
-            <p className="text-[11px] text-slate-400 pt-1">
+            <p className="text-[13px] text-slate-400 pt-1">
               Keyword and entity rules found in the text. These do not decide the verdict.
             </p>
             {result.reasons.map((reason, idx) => (
@@ -376,7 +376,7 @@ Recommended Action: ${result.recommendedAction.action}`;
             <span className="text-xs font-bold text-slate-200 uppercase tracking-wider font-mono">
               Detected Threat Signals
             </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950 text-amber-400 border border-amber-800 font-mono">
+            <span className="text-[12px] px-2 py-0.5 rounded-full bg-amber-950 text-amber-400 border border-amber-800 font-mono">
               {result.detectedSignals.length} Active
             </span>
           </div>
@@ -399,7 +399,7 @@ Recommended Action: ${result.recommendedAction.action}`;
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-xs font-semibold text-slate-200">{signal.name}</span>
                       <span
-                        className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                        className={`text-[11px] uppercase font-bold px-1.5 py-0.5 rounded ${
                           signal.severity === 'high'
                             ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                             : signal.severity === 'medium'
@@ -410,10 +410,10 @@ Recommended Action: ${result.recommendedAction.action}`;
                         {signal.severity}
                       </span>
                     </div>
-                    <div className="text-[11px] font-mono text-cyan-300 bg-slate-900 px-2 py-1 rounded mb-1.5 truncate">
+                    <div className="text-[13px] font-mono text-cyan-300 bg-slate-900 px-2 py-1 rounded mb-1.5 truncate">
                       Evidence: {signal.evidence}
                     </div>
-                    <p className="text-[11px] text-slate-400 leading-tight">{signal.explanation}</p>
+                    <p className="text-[13px] text-slate-400 leading-tight">{signal.explanation}</p>
                   </div>
                 ))}
               </div>
@@ -450,25 +450,25 @@ Recommended Action: ${result.recommendedAction.action}`;
             {/* Handcrafted Features Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
               <div className="p-2.5 rounded bg-slate-950 border border-slate-800">
-                <span className="text-slate-400 text-[10px] block">Uppercase Ratio</span>
+                <span className="text-slate-400 text-[12px] block">Uppercase Ratio</span>
                 <span className="text-cyan-300 font-bold">
                   {(result.modelFeatures.upperRatio * 100).toFixed(1)}%
                 </span>
               </div>
               <div className="p-2.5 rounded bg-slate-950 border border-slate-800">
-                <span className="text-slate-400 text-[10px] block">Digit Ratio</span>
+                <span className="text-slate-400 text-[12px] block">Digit Ratio</span>
                 <span className="text-cyan-300 font-bold">
                   {(result.modelFeatures.digitRatio * 100).toFixed(1)}%
                 </span>
               </div>
               <div className="p-2.5 rounded bg-slate-950 border border-slate-800">
-                <span className="text-slate-400 text-[10px] block">Exclamation Marks</span>
+                <span className="text-slate-400 text-[12px] block">Exclamation Marks</span>
                 <span className="text-cyan-300 font-bold">
                   {result.modelFeatures.exclaimCount}
                 </span>
               </div>
               <div className="p-2.5 rounded bg-slate-950 border border-slate-800">
-                <span className="text-slate-400 text-[10px] block">Suspicious Keywords</span>
+                <span className="text-slate-400 text-[12px] block">Suspicious Keywords</span>
                 <span className="text-cyan-300 font-bold">
                   {result.modelFeatures.suspiciousKeywordCount}
                 </span>
@@ -477,14 +477,14 @@ Recommended Action: ${result.recommendedAction.action}`;
 
             {/* Extracted Tokens */}
             <div>
-              <span className="text-[11px] text-slate-400 font-mono block mb-1.5">
+              <span className="text-[13px] text-slate-400 font-mono block mb-1.5">
                 Normalised word tokens (first 12):
               </span>
               <div className="flex flex-wrap gap-1.5">
                 {result.modelFeatures.wordTokens.map((token, idx) => (
                   <span
                     key={idx}
-                    className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800"
+                    className="text-[13px] font-mono px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800"
                   >
                     {token}
                   </span>

@@ -106,7 +106,7 @@ export default function SettingsPage() {
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-400">
               System Configuration & Optimization
             </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
+            <span className="text-[12px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
               Decision Boundary Tuning
             </span>
           </div>
@@ -169,7 +169,7 @@ export default function SettingsPage() {
                   onChange={(e) => setThreshold(parseFloat(e.target.value))}
                   className="w-full accent-cyan-500 cursor-pointer"
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 font-mono pt-1">
+                <div className="flex justify-between text-[12px] text-slate-500 font-mono pt-1">
                   <span>0.01 (High recall)</span>
                   <span className="text-cyan-400 font-bold">Model default {modelThreshold.toFixed(2)}</span>
                   <span>0.99 (Conservative)</span>
@@ -178,19 +178,19 @@ export default function SettingsPage() {
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
                 <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                  <span className="text-slate-400 text-[10px] block uppercase">Recall</span>
+                  <span className="text-slate-400 text-[12px] block uppercase">Recall</span>
                   <span className="text-emerald-400 text-lg font-bold">{simRecall.toFixed(1)}%</span>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                  <span className="text-slate-400 text-[10px] block uppercase">Precision</span>
+                  <span className="text-slate-400 text-[12px] block uppercase">Precision</span>
                   <span className="text-slate-200 text-lg font-bold">{simPrecision.toFixed(1)}%</span>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                  <span className="text-slate-400 text-[10px] block uppercase">False Alarms (FP)</span>
+                  <span className="text-slate-400 text-[12px] block uppercase">False Alarms (FP)</span>
                   <span className="text-amber-400 text-lg font-bold">{point.fp}</span>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                  <span className="text-slate-400 text-[10px] block uppercase">Missed Fraud (FN)</span>
+                  <span className="text-slate-400 text-[12px] block uppercase">Missed Fraud (FN)</span>
                   <span className="text-rose-400 text-lg font-bold">{point.fn}</span>
                 </div>
               </div>
@@ -198,7 +198,7 @@ export default function SettingsPage() {
               <div className="p-4 rounded-xl bg-cyan-950/20 border border-cyan-500/30 flex items-center justify-between">
                 <div>
                   <span className="text-xs font-bold text-slate-200 block">Expected cost on test split:</span>
-                  <span className="text-[11px] text-slate-400 font-mono">
+                  <span className="text-[13px] text-slate-400 font-mono">
                     Reweighted to {((targetPrevalence ?? testFraudRate) * 100).toFixed(1)}% target prevalence from the held-out counts
                   </span>
                 </div>
@@ -206,7 +206,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <span className="text-[11px] text-slate-400 font-mono">
+                <span className="text-[13px] text-slate-400 font-mono">
                   Scans currently use:{' '}
                   <span className="text-cyan-300">
                     {appliedThreshold === null
@@ -247,7 +247,7 @@ export default function SettingsPage() {
                   onChange={(e) => setCostFn(Math.max(0, parseFloat(e.target.value) || 0))}
                   className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-rose-400 font-bold focus:outline-none focus:border-cyan-500"
                 />
-                <span className="text-[10px] text-slate-500 mt-1 block">
+                <span className="text-[12px] text-slate-500 mt-1 block">
                   Training default: {report?.metrics.costFnWeight ?? '—'}
                 </span>
               </div>
@@ -263,7 +263,7 @@ export default function SettingsPage() {
                   onChange={(e) => setCostFp(Math.max(0, parseFloat(e.target.value) || 0))}
                   className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-amber-400 font-bold focus:outline-none focus:border-cyan-500"
                 />
-                <span className="text-[10px] text-slate-500 mt-1 block">
+                <span className="text-[12px] text-slate-500 mt-1 block">
                   Training default: {report?.metrics.costFpWeight ?? '—'}
                 </span>
               </div>

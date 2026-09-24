@@ -9,7 +9,7 @@ import { AdminFeedbackItem, AdminStats, ApiError, getAdminFeedback, getAdminStat
 function Tile({ label, value, tone = 'text-slate-100' }: { label: string; value: number | string; tone?: string }) {
   return (
     <div className="p-4 rounded-xl glass-panel border border-slate-800">
-      <span className="text-[10px] uppercase font-mono text-slate-400 font-bold block mb-1">{label}</span>
+      <span className="text-[12px] uppercase font-mono text-slate-400 font-bold block mb-1">{label}</span>
       <div className={`text-2xl font-black font-mono ${tone}`}>{value}</div>
     </div>
   );
@@ -87,10 +87,10 @@ export default function AdminPage() {
             Only results reported wrong
           </label>
         </div>
-        <p className="text-[11px] text-slate-500 mb-3">Digits, emails and link paths in messages are scrubbed.</p>
+        <p className="text-[13px] text-slate-500 mb-3">Digits, emails and link paths in messages are scrubbed.</p>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800 font-mono">
+            <thead className="text-[13px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800 font-mono">
               <tr>
                 <th className="py-2.5 px-3">When</th>
                 <th className="py-2.5 px-3">Message</th>

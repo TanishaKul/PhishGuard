@@ -25,7 +25,7 @@ function Brand() {
       </div>
       <div>
         <p className="text-lg font-bold tracking-wider text-slate-100">PHISHGUARD</p>
-        <p className="text-[11px] text-slate-400">AI Smishing Detection</p>
+        <p className="text-[13px] text-slate-400">AI Smishing Detection</p>
       </div>
     </div>
   );
@@ -69,7 +69,7 @@ export function AuthCard({
             ))}
           </ul>
         </div>
-        <p className="flex items-center gap-2 text-[11px] text-slate-500">
+        <p className="flex items-center gap-2 text-[13px] text-slate-500">
           <ShieldCheck className="w-3.5 h-3.5" />
           Sessions are secured with HttpOnly cookies.
         </p>
@@ -206,11 +206,11 @@ export function PasswordStrength({ password }: { password: string }) {
             <span key={i} className={`h-1 rounded-full transition-colors ${i <= score ? STRENGTH_COLORS[score] : 'bg-slate-800'}`} />
           ))}
         </div>
-        <span className="text-[11px] w-16 text-right text-slate-400">{label}</span>
+        <span className="text-[13px] w-16 text-right text-slate-400">{label}</span>
       </div>
       <ul className="grid grid-cols-2 gap-x-3 gap-y-1">
         {rules.map((rule) => (
-          <li key={rule.text} className={`flex items-center gap-1.5 text-[11px] ${rule.ok ? 'text-emerald-400' : 'text-slate-500'}`}>
+          <li key={rule.text} className={`flex items-center gap-1.5 text-[13px] ${rule.ok ? 'text-emerald-400' : 'text-slate-500'}`}>
             <Check className={`w-3 h-3 ${rule.ok ? 'opacity-100' : 'opacity-30'}`} />
             {rule.text}
           </li>

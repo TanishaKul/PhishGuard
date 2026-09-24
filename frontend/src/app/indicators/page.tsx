@@ -100,7 +100,7 @@ export default function IndicatorsPage() {
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-400">
               Model Feature Explainability
             </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
+            <span className="text-[12px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
               {report.metrics.modelName} {report.indicatorMethod === 'average_local_probability_effect' ? 'Local Effects' : 'Legacy Coefficients'}
             </span>
           </div>
@@ -163,7 +163,7 @@ export default function IndicatorsPage() {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-bold text-slate-200">{cat.displayName}</h3>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">
+                    <span className="text-[12px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">
                       {cat.keywords.length} terms
                     </span>
                   </div>
@@ -197,7 +197,7 @@ export default function IndicatorsPage() {
               </div>
               <div>
                 <span className="text-xs font-bold text-rose-300">Fraud-Indicative Features (Positive Coef)</span>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[13px] text-slate-400">
                   Tokens like{' '}
                   {fraudIndicators.slice(0, 3).map((i, idx) => (
                     <React.Fragment key={i.term}>
@@ -216,7 +216,7 @@ export default function IndicatorsPage() {
               </div>
               <div>
                 <span className="text-xs font-bold text-emerald-300">Legitimate Features (Negative Coef)</span>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[13px] text-slate-400">
                   Words like{' '}
                   {legitIndicators.slice(0, 3).map((i, idx) => (
                     <React.Fragment key={i.term}>
@@ -269,7 +269,7 @@ export default function IndicatorsPage() {
                     </span>
                   </div>
 
-                  <p className="text-[11px] text-slate-400 mb-3">
+                  <p className="text-[13px] text-slate-400 mb-3">
                     In {ind.fraudDocs} fraud and {ind.legitDocs} legitimate training messages
                   </p>
 
@@ -281,7 +281,7 @@ export default function IndicatorsPage() {
                         style={{ width: `${barWidth}%` }}
                       />
                     </div>
-                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                    <div className="flex justify-between text-[12px] text-slate-500 font-mono">
                       <span>{isFraud ? 'Pushes toward fraud' : 'Pushes toward legit'}</span>
                       <span>|w| relative to max</span>
                     </div>

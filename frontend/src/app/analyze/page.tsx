@@ -120,7 +120,7 @@ export default function AnalyzePage() {
               Interactive Diagnostic Console
             </span>
             {effectiveThreshold !== undefined && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
+              <span className="text-[12px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
                 {thresholdOverride === null ? 'Model threshold' : 'Effective threshold'} {(effectiveThreshold * 100).toFixed(2)}%
               </span>
             )}
@@ -203,7 +203,7 @@ export default function AnalyzePage() {
                 <Zap className="w-4 h-4 text-amber-400" />
                 <span>Benchmark Test Examples</span>
               </span>
-              <span className="text-[11px] text-slate-400 font-mono">Click to test</span>
+              <span className="text-[13px] text-slate-400 font-mono">Click to test</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -214,15 +214,15 @@ export default function AnalyzePage() {
                   disabled={isScanning}
                   className="p-3 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800/80 hover:border-cyan-500/40 text-left transition-all group"
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold text-slate-200 group-hover:text-cyan-300 transition-colors">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="shrink-0 text-xs font-bold text-slate-200 group-hover:text-cyan-300 transition-colors">
                       {preset.label}
                     </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
+                    <span className="min-w-0 truncate text-[12px] text-slate-400 font-mono" title={preset.category}>
                       {preset.category}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
+                  <p className="text-[13px] text-slate-400 line-clamp-2 leading-relaxed">
                     &quot;{preset.text}&quot;
                   </p>
                 </button>

@@ -88,13 +88,13 @@ export function Header() {
         <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
           <span>{currentRoute.title}</span>
         </h1>
-        <p className="text-[11px] text-slate-400 font-medium">{currentRoute.subtitle}</p>
+        <p className="text-[13px] text-slate-400 font-medium">{currentRoute.subtitle}</p>
       </div>
 
       {/* Right Action Bar */}
       <div className="flex items-center gap-3">
         {/* UTC Clock */}
-        <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/60 border border-slate-800 text-[11px] font-mono text-slate-400">
+        <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/60 border border-slate-800 text-[13px] font-mono text-slate-400">
           <Clock className="w-3.5 h-3.5 text-slate-400" />
           <span>{time || '00:00:00 UTC'}</span>
         </div>
@@ -111,7 +111,7 @@ export function Header() {
           <span className="relative flex h-2 w-2">
             <span className={`relative inline-flex rounded-full h-2 w-2 ${health ? 'bg-cyan-500' : 'bg-rose-500'}`}></span>
           </span>
-          <span className="text-[11px] font-mono font-semibold">
+          <span className="text-[13px] font-mono font-semibold">
             {health ? 'MODEL API ONLINE' : healthError ? 'MODEL API OFFLINE' : 'CHECKING API'}
           </span>
         </div>
@@ -120,7 +120,7 @@ export function Header() {
 
         {session.status === 'signed-in' && (
           <div className="flex items-center gap-2">
-            <span className="hidden md:inline text-[11px] font-mono text-slate-400" title={signOutError ?? undefined}>
+            <span className="hidden md:inline text-[13px] font-mono text-slate-400" title={signOutError ?? undefined}>
               {session.user.email}
             </span>
             <button

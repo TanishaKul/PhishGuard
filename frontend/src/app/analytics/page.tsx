@@ -52,7 +52,7 @@ export default function AnalyticsPage() {
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-400">
               Aggregated Threat Telemetry
             </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
+            <span className="text-[12px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
               {data.totalScans} Total Scans
             </span>
           </div>
@@ -170,7 +170,7 @@ export default function AnalyticsPage() {
             </ResponsiveContainer>
             <div className="absolute text-center pointer-events-none">
               <span className="text-lg font-bold font-mono text-slate-100">{data.totalScans}</span>
-              <span className="text-[10px] block text-slate-400 uppercase">Messages</span>
+              <span className="text-[12px] block text-slate-400 uppercase">Messages</span>
             </div>
           </div>
 
