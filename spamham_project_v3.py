@@ -270,10 +270,11 @@ def template_groups(messages: pd.Series) -> pd.Series:
     Splitting on this keeps every copy of a template on the same side, so the
     test split measures new messages rather than re-sent ones.
     """
-    normalized = messages.map(lambda message: normalize_text(
+    # The 40-character prefix groups copies whose tails differ (names, amounts,
+    # sign-offs); links are collapsed first so a long URL cannot eat the prefix.
+    return messages.map(lambda message: normalize_text(
         LINK_RE.sub(" <url> ", str(message).lower())
-    ))
-    return normalized
+    )).str[:40]
 
 
 def build_features() -> FeatureUnion:
