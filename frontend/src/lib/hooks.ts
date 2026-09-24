@@ -167,11 +167,6 @@ if (typeof window !== 'undefined') {
     if (event.key === 'phishguard_threshold' || event.key === null) {
       window.dispatchEvent(new Event(THRESHOLD_CHANGED_EVENT));
     }
-    if (event.key === 'pg_session' || event.key === null) {
-      sessionGeneration++;
-      setSession({ status: 'loading' });
-      refreshSession();
-    }
   });
 }
 
