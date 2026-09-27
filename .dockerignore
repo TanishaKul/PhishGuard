@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+data
+frontend
+tests
+*.joblib
+*.csv
+*.png
+model_report.json

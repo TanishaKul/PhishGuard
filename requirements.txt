@@ -1,0 +1,12 @@
+# Training and the API. Direct versions are pinned because joblib model files
+# must remain loadable across API, CI and deployment rebuilds.
+pandas==3.0.6
+numpy==2.5.3
+scipy==1.18.1
+scikit-learn==1.9.1
+joblib==1.6.0
+fastapi==0.141.1
+uvicorn==0.53.0
+sqlalchemy==2.0.54
+psycopg[binary]==3.3.6
+alembic==1.20.0

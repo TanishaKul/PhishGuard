@@ -1,0 +1,43 @@
+# Whole stack locally: Postgres + API + web app.
+#   docker compose up --build        -> http://localhost:3000
+# Needs a trained model at ./fraud_model.joblib (or set MODEL_FILE).
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: phishguard
+      POSTGRES_PASSWORD: phishguard
+      POSTGRES_DB: phishguard
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U phishguard -d phishguard"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://phishguard:phishguard@db:5432/phishguard
+      APP_URL: http://localhost:${WEB_PORT:-3000}
+    volumes:
+      - ${MODEL_FILE:-./fraud_model.joblib}:/models/fraud_model.joblib:ro
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:${API_PORT:-8000}
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:

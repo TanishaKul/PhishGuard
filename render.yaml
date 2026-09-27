@@ -1,0 +1,46 @@
+# Render blueprint: the API (Docker) and its Postgres database.
+# The web app goes on Vercel and proxies /api/* here (see README, "Deploying").
+services:
+  - type: web
+    name: phishguard-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: phishguard-db
+          property: connectionString
+      - key: COOKIE_SECURE
+        value: "1"
+      # Trust Render's proxy chain so rate limits see the client address.
+      # Safe only behind Render's proxy: if the API is ever reachable directly,
+      # clients can forge X-Forwarded-For and dodge per-IP rate limits. Set
+      # this to the proxy's address range on any other host.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      # Public HTTPS URL of the trained model file and its SHA-256.
+      - key: MODEL_URL
+        sync: false
+      - key: MODEL_SHA256
+        sync: false
+      # Web app address, used in password-reset links.
+      - key: APP_URL
+        sync: false
+      # Required for password resets. Production delivery fails closed without SMTP.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+
+databases:
+  - name: phishguard-db
+    plan: free

@@ -1,0 +1,257 @@
+@import "tailwindcss";
+
+/* App surfaces, usable as bg-app, bg-surface, via-hero, ... The light theme
+   redefines these along with Tailwind's own palette variables below. */
+@theme {
+  --color-app: #070a12;
+  --color-surface: #090d16;
+  --color-hero: #0b1329;
+
+  /* One typeface everywhere: font-mono labels use Geist too, with tabular
+     figures (below) so numbers still line up in tables. */
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-geist-sans), system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Larger, heavier, tighter type than Tailwind's defaults. */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.4;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.45;
+  --text-base: 1.0625rem;
+  --text-base--line-height: 1.5;
+
+  --font-weight-normal: 500;
+  --font-weight-medium: 600;
+  --font-weight-semibold: 650;
+  --font-weight-bold: 700;
+  --font-weight-black: 850;
+
+  --tracking-wide: 0.01em;
+  --tracking-wider: 0.025em;
+  --tracking-widest: 0.06em;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-app);
+  color: var(--color-slate-100);
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-normal);
+  letter-spacing: -0.006em;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom subtle cyber grid background */
+.cyber-grid-bg {
+  background-image: 
+    radial-gradient(circle at 50% 0%, rgba(6, 182, 212, 0.08) 0%, transparent 65%),
+    radial-gradient(circle at 100% 100%, rgba(20, 184, 166, 0.05) 0%, transparent 50%),
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
+}
+
+/* Glassmorphism surfaces */
+.glass-panel {
+  background: rgba(13, 19, 33, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+}
+
+.glass-panel-hover {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-panel-hover:hover {
+  background: rgba(17, 24, 39, 0.85);
+  border-color: rgba(6, 182, 212, 0.4);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35), 0 0 15px rgba(6, 182, 212, 0.1);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-slate-800);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #06b6d4;
+}
+
+/* Scanner beam animation */
+@keyframes scanline {
+  0% {
+    top: 0%;
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0.8;
+  }
+}
+
+.animate-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #06b6d4, #14b8a6, #06b6d4, transparent);
+  box-shadow: 0 0 12px #06b6d4, 0 0 24px #14b8a6;
+  animation: scanline 2s ease-in-out infinite alternate;
+}
+
+/* Radar ping */
+@keyframes radar-pulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+}
+
+.animate-radar-pulse {
+  animation: radar-pulse 3s ease-in-out infinite;
+}
+
+/* Neon severity pills */
+.badge-fraud {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.badge-legit {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.badge-medium {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.badge-cyan {
+  background: rgba(6, 182, 212, 0.12);
+  color: #22d3ee;
+  border: 1px solid rgba(6, 182, 212, 0.35);
+}
+
+/* ------------------------------------------------------------ light theme
+   Every colour utility in Tailwind v4 reads a CSS variable, so the light
+   theme remaps the palette instead of duplicating classes. Neutrals invert
+   onto warm off-white tones (slate-950 backgrounds become near-white,
+   slate-100 text becomes near-black); accents shift to deeper shades so
+   text keeps contrast on a light background, and the darkest accent shades
+   (used for tinted fills and borders) become pale tints. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-app: #f6f5f1;
+  --color-surface: #fdfcf9;
+  --color-hero: #e9f2f3;
+
+  --color-slate-50: #0d0d0c;
+  --color-slate-100: #121110;
+  --color-slate-200: #1d1c19;
+  --color-slate-300: #2c2a26;
+  --color-slate-400: #3d3a35;
+  --color-slate-500: #55514a;
+  --color-slate-600: #85806f;
+  --color-slate-700: #cfcac0;
+  --color-slate-800: #e3dfd6;
+  --color-slate-900: #efece5;
+  --color-slate-950: #fbfaf7;
+
+  --color-cyan-300: #164e63;
+  --color-cyan-400: #155e75;
+  --color-cyan-500: #0e7490;
+  --color-cyan-600: #164e63;
+  --color-cyan-800: #a5f3fc;
+  --color-cyan-950: #ecfeff;
+
+  --color-teal-400: #115e59;
+  --color-teal-500: #0f766e;
+
+  --color-rose-300: #9f1239;
+  --color-rose-400: #be123c;
+  --color-rose-500: #e11d48;
+  --color-rose-600: #be123c;
+  --color-rose-700: #fda4af;
+  --color-rose-800: #fecdd3;
+  --color-rose-900: #ffe4e6;
+  --color-rose-950: #fff1f2;
+
+  --color-emerald-300: #065f46;
+  --color-emerald-400: #047857;
+  --color-emerald-500: #047857;
+  --color-emerald-700: #6ee7b7;
+  --color-emerald-800: #a7f3d0;
+  --color-emerald-900: #d1fae5;
+  --color-emerald-950: #ecfdf5;
+
+  --color-amber-300: #92400e;
+  --color-amber-400: #b45309;
+  --color-amber-500: #d97706;
+  --color-amber-700: #fcd34d;
+  --color-amber-800: #fde68a;
+  --color-amber-900: #fef3c7;
+  --color-amber-950: #fffbeb;
+
+  --color-purple-400: #7e22ce;
+  --color-yellow-500: #ca8a04;
+}
+
+:root[data-theme="light"] .cyber-grid-bg {
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(14, 116, 144, 0.07) 0%, transparent 65%),
+    radial-gradient(circle at 100% 100%, rgba(15, 118, 110, 0.05) 0%, transparent 50%),
+    linear-gradient(to right, rgba(20, 20, 18, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 20, 18, 0.035) 1px, transparent 1px);
+}
+
+:root[data-theme="light"] .glass-panel {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(207, 202, 192, 0.8);
+  box-shadow: 0 1px 2px rgba(20, 20, 18, 0.04), 0 4px 16px rgba(20, 20, 18, 0.04);
+}
+
+:root[data-theme="light"] .glass-panel-hover:hover {
+  background: #ffffff;
+  border-color: rgba(14, 116, 144, 0.35);
+  box-shadow: 0 8px 24px rgba(20, 20, 18, 0.08);
+}
+
+:root[data-theme="light"] .badge-fraud { color: #be123c; background: rgba(225, 29, 72, 0.08); }
+:root[data-theme="light"] .badge-legit { color: #047857; background: rgba(4, 120, 87, 0.08); }
+:root[data-theme="light"] .badge-medium { color: #b45309; background: rgba(217, 119, 6, 0.08); }
+:root[data-theme="light"] .badge-cyan { color: #155e75; background: rgba(14, 116, 144, 0.08); }
