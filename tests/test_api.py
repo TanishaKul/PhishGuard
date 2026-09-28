@@ -418,8 +418,9 @@ def test_sqlite_feedback_cascade_prevents_cross_user_leak(client):
     client.post("/api/auth/logout")
     register(client, email="b@example.com")
     second = client.post("/api/scan", json={"message": "unrelated second-user message"}).json()
-    assert second["id"] == "scan-1"  # SQLite reused the deleted primary key.
+    # PK may be reused (SQLite) or advanced by SEQUENCE (Postgres); either way no leak.
     item = client.get("/api/history").json()["items"][0]
+    assert item["id"] == second["id"]
     assert item["feedback"] is None and item["result"]["feedback"] is None
 
 
