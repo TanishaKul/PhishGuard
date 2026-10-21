@@ -4,6 +4,8 @@ SMS fraud (smishing) detection: a trained scikit-learn model, a FastAPI
 service with accounts and scan history, and a Next.js web app that explains
 each verdict.
 
+**Live demo:** http://148.100.76.247:3000
+
 ## Contents
 
 | Path | What it does |
